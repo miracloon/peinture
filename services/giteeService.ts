@@ -1,5 +1,6 @@
 
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
+import { generateUUID } from "./utils";
 
 const GITEE_GENERATE_API_URL = "https://ai.gitee.com/v1/images/generations";
 const GITEE_CHAT_API_URL = "https://ai.gitee.com/v1/chat/completions";
@@ -209,7 +210,7 @@ export const generateGiteeImage = async (
       const imageUrl = `data:${mimeType};base64,${base64Image}`;
 
       return {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         url: imageUrl,
         model,
         prompt,

@@ -1,5 +1,6 @@
 
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
+import { generateUUID } from "./utils";
 
 const ZIMAGE_BASE_API_URL = "https://luca115-z-image-turbo.hf.space";
 const QWEN_IMAGE_BASE_API_URL = "https://mcp-tools-qwen-image-fast.hf.space";
@@ -231,7 +232,7 @@ const generateZImage = async (
         if (!data) throw new Error("error_invalid_response");
 
         return {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         url: data[0].url,
         model: 'z-image-turbo',
         prompt,
@@ -273,7 +274,7 @@ const generateQwenImage = async (
         if (!data) throw new Error("error_invalid_response");
 
         return {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         url: data[0].url,
         model: 'qwen-image-fast',
         prompt,
@@ -317,7 +318,7 @@ const generateOvisImage = async (
         if (!data) throw new Error("error_invalid_response");
 
         return {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         url: data[0].url,
         model: 'ovis-image',
         prompt,

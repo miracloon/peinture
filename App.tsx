@@ -572,7 +572,7 @@ export default function App() {
         <header className="w-full backdrop-blur-md sticky top-0 z-50 bg-background-dark/30 border-b border-white/5">
           <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-2 md:px-8 md:py-4">
             <div className="flex items-center gap-2 text-white">
-              <Logo />
+              <Logo className="size-10" />
               <h1 className="text-white text-xl font-bold leading-tight tracking-[-0.015em]">{t.appTitle}</h1>
             </div>
             

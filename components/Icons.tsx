@@ -1,5 +1,21 @@
-export const Logo = () => {
-  return <div className="size-10 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxODAiIGhlaWdodD0iMTgwIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDQwIDEwKSI+PHBhdGggc3Ryb2tlPSIjRkZGIiBzdHJva2UtbGluZWNhcD0ic3F1YXJlIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjgiIGQ9Ik05NCAxMThhOCA4IDAgMCAxLTggOEg4YTggOCAwIDAgMS04LThWNDBhOCA4IDAgMCAxIDgtOCIvPjxwYXRoIHN0cm9rZT0iI0ZGRiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2Utd2lkdGg9IjgiIGQ9Im05My41IDc3LjUuOTUgMzcuOTg4TTcgMzIuNWg0My41Ii8+PHBhdGggZmlsbD0iI0ZGRiIgZmlsbC1ydWxlPSJub256ZXJvIiBkPSJtMTQgMTAzIDE3LjI1LTIyLjY2NyAxNy4yNSAxN0w2NS43NSA2OSA4MyAxMDN6Ii8+PGNpcmNsZSBjeD0iMzIuNSIgY3k9IjYwLjUiIHI9IjcuNSIgZmlsbD0iI0ZGRiIgZmlsbC1ydWxlPSJub256ZXJvIi8+PHBhdGggZmlsbD0iI0ZGRiIgZmlsbC1ydWxlPSJub256ZXJvIiBkPSJNOTMuNTU1IDBjMCAxOS4wNTQtMTUuNDEzIDM0LjUtMzQuNDI3IDM0LjUgMTkuMDE0IDAgMzQuNDI3IDE1LjQ0NiAzNC40MjcgMzQuNSAwLTE5LjA1NCAxNS40MTQtMzQuNSAzNC40MjgtMzQuNS0xOS4wMTQgMC0zNC40MjgtMTUuNDQ2LTM0LjQyOC0zNC41Ii8+PC9nPjwvc3ZnPg==')] bg-cover"></div>
+export const Logo = ({ className }: { className?: string }) => {
+  return <svg 
+      xmlns="http://www.w3.org/2000/svg" 
+      width="24" 
+      height="24" 
+      viewBox="0 0 180 180"
+      fill="currentColor"
+      stroke="currentColor"
+      className={className}
+    >
+      <g fill="none" fill-rule="evenodd" transform="translate(40 10)">
+        <path stroke-linecap="square" stroke-linejoin="round" stroke-width="8" d="M94 118a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8V40a8 8 0 0 1 8-8"/>
+        <path stroke-linecap="round" stroke-width="8" d="m93.5 77.5.95 37.988M7 32.5h43.5"/>
+        <path fill="currentColor" stroke="none" fill-rule="nonzero" d="m14 103 17.25-22.667 17.25 17L65.75 69 83 103z"/>
+        <circle cx="32.5" cy="60.5" r="7.5" fill="currentColor" stroke="none" fill-rule="nonzero"/>
+        <path fill="currentColor" stroke="none" fill-rule="nonzero" d="M93.555 0c0 19.054-15.413 34.5-34.427 34.5 19.014 0 34.427 15.446 34.427 34.5 0-19.054 15.414-34.5 34.428-34.5-19.014 0-34.428-15.446-34.428-34.5"/>
+      </g>
+    </svg>
 }
 
 export const Icon4x = ({ className }: { className?: string }) => (

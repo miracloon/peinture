@@ -157,6 +157,57 @@ A: Image generation for Hugging Face is powered by Hugging Face, and prompt opti
 **Q: Can I host this myself?**
 A: Yes! This is an open-source project licensed under MIT. You can fork the repository from GitHub and deploy it to Vercel, Cloudflare Pages, or any static hosting service.
 
+## 🔄 Keep Your Fork Updated
+
+If you have forked this project, you can use GitHub Actions to automatically sync your repository with the original repository.
+
+1. In your forked repository, create a new file at `.github/workflows/sync.yml`.
+2. Paste the following content into the file:
+
+```yaml
+name: Upstream Sync
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # Run every day at 00:00 UTC
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  sync_latest_from_upstream:
+    name: Sync latest commits from upstream repo
+    runs-on: ubuntu-latest
+    if: ${{ github.event.repository.fork }}
+
+    steps:
+      # Step 1: run a standard checkout action
+      - name: Checkout target repo
+        uses: actions/checkout@v3
+
+      # Step 2: run the sync action
+      - name: Sync upstream changes
+        id: sync
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+        with:
+          upstream_sync_repo: Amery2010/peinture
+          upstream_sync_branch: main
+          target_sync_branch: main
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }} # Automatically generated, no need to set
+
+          # Set test_mode true to run tests instead of the true action!!
+          test_mode: false
+
+      - name: Sync check
+        if: failure()
+        run: |
+          echo "[Error] Due to a change in the workflow file of the upstream repository, GitHub has automatically suspended the scheduled automatic update. You need to manually sync your fork."
+          exit 1
+```
+
+3. Commit the changes. Your fork will now check for updates daily and sync automatically.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

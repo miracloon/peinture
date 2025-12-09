@@ -1,5 +1,6 @@
 
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
+import { generateUUID } from "./utils";
 
 const MS_GENERATE_API_URL = "https://api-inference.modelscope.cn/v1/images/generations";
 const MS_CHAT_API_URL = "https://api-inference.modelscope.cn/v1/chat/completions";
@@ -245,7 +246,7 @@ export const generateMSImage = async (
               }
 
               return {
-                id: crypto.randomUUID(),
+                id: generateUUID(),
                 url: imageUrl,
                 model,
                 prompt,
