@@ -49,7 +49,7 @@ export default function App() {
 
   const [prompt, setPrompt] = useState<string>('');
   const [provider, setProvider] = useState<ProviderOption>('huggingface');
-  const [model, setModel] = useState<ModelOption>('ovis-image');
+  const [model, setModel] = useState<ModelOption>('z-image-turbo');
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>('1:1');
   const [seed, setSeed] = useState<string>(''); 
   const [steps, setSteps] = useState<number>(9);

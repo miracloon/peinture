@@ -2,10 +2,10 @@
 import { ModelOption, ProviderOption } from './types';
 
 export const HF_MODEL_OPTIONS = [
+  { value: 'z-image-turbo', label: 'Z-Image Turbo' },
   { value: 'qwen-image-fast', label: 'Qwen Image Fast' },
   { value: 'ovis-image', label: 'Ovis Image' },
-  { value: 'flux-1-schnell', label: 'FLUX.1 Schnell' },
-  { value: 'z-image-turbo', label: 'Z-Image Turbo (Server Error)' }
+  { value: 'flux-1-schnell', label: 'FLUX.1 Schnell' }
 ];
 
 export const GITEE_MODEL_OPTIONS = [
