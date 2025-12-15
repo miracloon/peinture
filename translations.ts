@@ -66,6 +66,10 @@ export const translations = {
     guidanceScale: "Guidance Scale",
     autoTranslate: "Auto Translate",
     translating: "Translating...",
+    live: "Live",
+    liveGenerating: "Generating Video...",
+    liveGeneratingDesc: "Generating Video Description...",
+    liveError: "Video Generation Failed",
 
     // Tabs
     tab_general: "General",
@@ -111,6 +115,8 @@ export const translations = {
     faq_a6: "Some advanced models (like FLUX series) understand English best. When these models are selected, 'Auto Translate' is enabled by default. We detect if your prompt is not in English and automatically translate it using a fast LLM before generating the image to ensure the highest quality output.",
     faq_q7: "How does Prompt Optimization work?",
     faq_a7: "We use powerful LLMs to expand your short ideas into detailed, artistically rich prompts. Depending on the provider, we use models like DeepSeek or OpenAI. You can customize the 'Role Setting' in the Settings menu to control how the AI rewrites your prompts.",
+    faq_q8: "How does Live Image work?",
+    faq_a8: "The Live feature transforms static images into dynamic short videos. By leveraging advanced Image-to-Video models (such as Wan2.2), the AI analyzes the scene's composition to generate natural motion and cinematic effects, bringing your creation to life. Currently, only Hugging Face and Gitee AI are supported.",
     footer_license: "Released under the MIT License. Open source and free forever.",
 
     // Aspect Ratios
@@ -186,6 +192,10 @@ export const translations = {
     guidanceScale: "提示词权重",
     autoTranslate: "自动翻译",
     translating: "翻译中...",
+    live: "Live 图",
+    liveGenerating: "视频生成中...",
+    liveGeneratingDesc: "生成视频描述中...",
+    liveError: "视频生成失败",
     
     // Tabs
     tab_general: "通用",
@@ -231,6 +241,8 @@ export const translations = {
     faq_a6: "某些高级模型（如 FLUX 系列）对英文提示词的理解能力最佳。当选择这些模型时，“自动翻译”功能会默认开启。我们会检测您的提示词是否为非英文，并使用快速 LLM 自动将其翻译为英文，以确保生成最高质量的图片。",
     faq_q7: "提示词优化是如何工作的？",
     faq_a7: "我们使用强大的 LLM 将您简短的想法扩展为详细、富有艺术感的提示词。根据服务商的不同，我们会调用 DeepSeek 或 OpenAI 等模型。您可以在“设置”菜单的“提示词”选项卡中自定义“角色设定”，以控制 AI 重写提示词的方式。",
+    faq_q8: "Live 图生成原理是什么？",
+    faq_a8: "Live 功能利用先进的图生视频模型（如 Wan2.2），将静态图片转化为动态短视频。AI 会分析画面构图，生成自然的运动轨迹和电影级特效，赋予您的作品生命力。目前仅 Hugging Face 与 Gitee AI 支持。",
     footer_license: "基于 MIT 协议发布。永久开源免费。",
 
     // Aspect Ratios

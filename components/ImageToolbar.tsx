@@ -1,9 +1,9 @@
 
 import React from 'react';
-import { Info as LucideInfo, Eye as LucideEye, EyeOff as LucideEyeOff, Download as LucideDownload, Trash2 as LucideTrash2, X as LucideX, Check as LucideCheck, Loader2 as LucideLoader2 } from 'lucide-react';
+import { Info as LucideInfo, Eye as LucideEye, EyeOff as LucideEyeOff, Download as LucideDownload, Trash2 as LucideTrash2, X as LucideX, Check as LucideCheck, Loader2 as LucideLoader2, Film as LucideFilm } from 'lucide-react';
 import { Icon4x as CustomIcon4x } from './Icons';
 import { Tooltip } from './Tooltip';
-import { GeneratedImage } from '../types';
+import { GeneratedImage, ProviderOption } from '../types';
 
 interface ImageToolbarProps {
     currentImage: GeneratedImage | null;
@@ -19,6 +19,12 @@ interface ImageToolbarProps {
     handleCancelUpscale: () => void;
     handleApplyUpscale: () => void;
     t: any;
+    // New Props for Live
+    isLiveMode?: boolean;
+    onLiveClick?: () => void;
+    isLiveGenerating?: boolean;
+    isGeneratingVideoPrompt?: boolean;
+    provider?: ProviderOption;
 }
 
 export const ImageToolbar: React.FC<ImageToolbarProps> = ({
@@ -34,9 +40,18 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
     handleDelete,
     handleCancelUpscale,
     handleApplyUpscale,
-    t
+    t,
+    isLiveMode,
+    onLiveClick,
+    isLiveGenerating,
+    isGeneratingVideoPrompt,
+    provider
 }) => {
     if (!currentImage) return null;
+
+    // Use the provider from props (current selected provider) to determine button visibility
+    const showLiveButton = provider === 'gitee' || provider === 'huggingface';
+    const showUpscaleButton = provider === 'huggingface';
 
     return (
         <div className="absolute bottom-6 inset-x-0 flex justify-center pointer-events-none z-40">
@@ -73,8 +88,28 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
 
                     <div className="w-px h-5 bg-white/10 mx-1"></div>
 
-                    {/* Upscale Button - Conditionally Rendered for Hugging Face only */}
-                    {currentImage.provider === 'huggingface' && (
+                    {/* Live Button for Gitee or Hugging Face */}
+                    {showLiveButton && (
+                        <>
+                             <Tooltip content={isGeneratingVideoPrompt ? t.liveGeneratingDesc : (isLiveGenerating ? t.liveGenerating : t.live)}>
+                                <button
+                                    onClick={onLiveClick}
+                                    disabled={isLiveGenerating || isGeneratingVideoPrompt}
+                                    className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${isLiveMode ? 'text-red-400 bg-red-500/10' : 'text-white/70 hover:text-red-400 hover:bg-white/10'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                                >
+                                    {(isLiveGenerating || isGeneratingVideoPrompt) ? (
+                                        <LucideLoader2 className="w-5 h-5 animate-spin text-red-400" />
+                                    ) : (
+                                        <LucideFilm className="w-5 h-5" />
+                                    )}
+                                </button>
+                            </Tooltip>
+                            <div className="w-px h-5 bg-white/10 mx-1"></div>
+                        </>
+                    )}
+
+                    {/* Upscale Button - Conditionally Rendered for Hugging Face only, and NOT in Live mode */}
+                    {showUpscaleButton && !isLiveMode && (
                         <>
                             <Tooltip content={isUpscaling ? t.upscaling : t.upscale}>
                                 <button

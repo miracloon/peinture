@@ -13,6 +13,12 @@ export interface GeneratedImage {
     isBlurred?: boolean;
     isUpscaled?: boolean;
     provider?: ProviderOption;
+    // Video Generation Properties
+    videoUrl?: string;
+    videoTaskId?: string;
+    videoStatus?: 'generating' | 'success' | 'failed';
+    videoError?: string;
+    videoProvider?: ProviderOption;
 }
 
 export type AspectRatioOption = "1:1" | "3:2" | "2:3" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9";

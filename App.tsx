@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { generateImage, optimizePrompt, upscaler } from './services/hfService';
-import { generateGiteeImage, optimizePromptGitee } from './services/giteeService';
+import { generateImage, optimizePrompt, upscaler, createVideoTaskHF } from './services/hfService';
+import { generateGiteeImage, optimizePromptGitee, createVideoTask, getGiteeTaskStatus } from './services/giteeService';
 import { generateMSImage, optimizePromptMS } from './services/msService';
 import { translatePrompt } from './services/utils';
 import { GeneratedImage, AspectRatioOption, ModelOption, ProviderOption } from './types';
@@ -48,13 +48,70 @@ export default function App() {
   ];
 
   const [prompt, setPrompt] = useState<string>('');
-  const [provider, setProvider] = useState<ProviderOption>('huggingface');
-  const [model, setModel] = useState<ModelOption>('z-image-turbo');
-  const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>('1:1');
+
+  // --- Persistence Logic Start ---
+  
+  const [provider, setProvider] = useState<ProviderOption>(() => {
+    if (typeof localStorage === 'undefined') return 'huggingface';
+    const saved = localStorage.getItem('app_provider') as ProviderOption;
+    return ['huggingface', 'gitee', 'modelscope'].includes(saved) ? saved : 'huggingface';
+  });
+
+  const [model, setModel] = useState<ModelOption>(() => {
+    let effectiveProvider: ProviderOption = 'huggingface';
+    if (typeof localStorage !== 'undefined') {
+        const savedProvider = localStorage.getItem('app_provider') as ProviderOption;
+        if (['huggingface', 'gitee', 'modelscope'].includes(savedProvider)) {
+            effectiveProvider = savedProvider;
+        }
+    }
+
+    const savedModel = typeof localStorage !== 'undefined' ? localStorage.getItem('app_model') : null;
+    
+    let options;
+    if (effectiveProvider === 'gitee') options = GITEE_MODEL_OPTIONS;
+    else if (effectiveProvider === 'modelscope') options = MS_MODEL_OPTIONS;
+    else options = HF_MODEL_OPTIONS;
+
+    const isValid = options.some(o => o.value === savedModel);
+    if (isValid && savedModel) return savedModel as ModelOption;
+    
+    return options[0].value as ModelOption;
+  });
+
+  const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>(() => {
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('app_aspect_ratio') : null;
+    // Basic validation could be added, but relying on stored string is generally safe with fallback
+    return (saved as AspectRatioOption) || '1:1';
+  });
+
+  const [enableHD, setEnableHD] = useState<boolean>(() => {
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('app_enable_hd') : null;
+    return saved === 'true';
+  });
+
+  // Effects to save settings
+  useEffect(() => {
+    localStorage.setItem('app_provider', provider);
+  }, [provider]);
+
+  useEffect(() => {
+    localStorage.setItem('app_model', model);
+  }, [model]);
+
+  useEffect(() => {
+    localStorage.setItem('app_aspect_ratio', aspectRatio);
+  }, [aspectRatio]);
+
+  useEffect(() => {
+    localStorage.setItem('app_enable_hd', String(enableHD));
+  }, [enableHD]);
+
+  // --- Persistence Logic End ---
+
   const [seed, setSeed] = useState<string>(''); 
   const [steps, setSteps] = useState<number>(9);
   const [guidanceScale, setGuidanceScale] = useState<number>(3.5);
-  const [enableHD, setEnableHD] = useState<boolean>(false);
   const [autoTranslate, setAutoTranslate] = useState<boolean>(false);
   
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -70,6 +127,9 @@ export default function App() {
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [tempUpscaledImage, setTempUpscaledImage] = useState<string | null>(null);
   
+  // Video State
+  const [isLiveMode, setIsLiveMode] = useState<boolean>(false);
+
   // Initialize history from localStorage with expiration check (delete older than 1 day)
   const [history, setHistory] = useState<GeneratedImage[]>(() => {
     try {
@@ -100,6 +160,84 @@ export default function App() {
   
   // FAQ State
   const [showFAQ, setShowFAQ] = useState<boolean>(false);
+
+  // Use refs for polling to avoid stale closures and constant interval resetting
+  const historyRef = useRef(history);
+  const currentImageRef = useRef(currentImage);
+
+  // Sync refs with state
+  useEffect(() => {
+      historyRef.current = history;
+  }, [history]);
+
+  useEffect(() => {
+      currentImageRef.current = currentImage;
+  }, [currentImage]);
+
+  // Robust Polling for Video Tasks
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+        // Use refs to check condition without adding dependencies
+        const currentHist = historyRef.current;
+        const pendingVideos = currentHist.filter(img => 
+            img.videoStatus === 'generating' && 
+            img.videoTaskId && 
+            img.videoProvider === 'gitee'
+        );
+        
+        if (pendingVideos.length === 0) return;
+
+        // Fetch updates in parallel
+        const updates = await Promise.all(pendingVideos.map(async (img) => {
+            if (!img.videoTaskId) return null;
+            try {
+                const result = await getGiteeTaskStatus(img.videoTaskId);
+                if (result.status === 'success' || result.status === 'failed') {
+                    return { id: img.id, ...result };
+                }
+                return null;
+            } catch (e) {
+                console.error("Failed to poll task", img.videoTaskId, e);
+                return null;
+            }
+        }));
+
+        const validUpdates = updates.filter(u => u !== null) as {id: string, status: string, videoUrl?: string, error?: string}[];
+
+        if (validUpdates.length > 0) {
+            setHistory(prev => prev.map(item => {
+                const update = validUpdates.find(u => u.id === item.id);
+                if (!update) return item;
+
+                if (update.status === 'success' && update.videoUrl) {
+                    return { ...item, videoStatus: 'success', videoUrl: update.videoUrl };
+                } else if (update.status === 'failed') {
+                    const failMsg = update.error || 'Video generation failed';
+                    return { ...item, videoStatus: 'failed', videoError: failMsg };
+                }
+                return item;
+            }));
+
+            // Sync currentImage if it's the one currently being viewed
+            const currImg = currentImageRef.current;
+            if (currImg) {
+                const relevantUpdate = validUpdates.find(u => u.id === currImg.id);
+                if (relevantUpdate) {
+                     if (relevantUpdate.status === 'success' && relevantUpdate.videoUrl) {
+                        setCurrentImage(prev => prev ? { ...prev, videoStatus: 'success', videoUrl: relevantUpdate.videoUrl } : null);
+                        setIsLiveMode(true);
+                     } else if (relevantUpdate.status === 'failed') {
+                        setCurrentImage(prev => prev ? { ...prev, videoStatus: 'failed', videoError: relevantUpdate.error || 'Video generation failed' } : null);
+                        setError(relevantUpdate.error || 'Video generation failed');
+                     }
+                }
+            }
+        }
+    }, 5000); // Check every 5 seconds
+
+    return () => clearInterval(pollInterval);
+  }, []); // Empty dependency array ensures interval doesn't reset on render
+
 
   // Language Persistence
   useEffect(() => {
@@ -134,7 +272,11 @@ export default function App() {
   // Initial Selection Effect
   useEffect(() => {
     if (!currentImage && history.length > 0) {
-      setCurrentImage(history[0]);
+      const firstImg = history[0];
+      setCurrentImage(firstImg);
+      if (firstImg.videoUrl && firstImg.videoStatus === 'success') {
+          setIsLiveMode(true);
+      }
     }
   }, [history.length]); 
 
@@ -188,6 +330,7 @@ export default function App() {
     setImageDimensions(null);
     setIsComparing(false);
     setTempUpscaledImage(null);
+    setIsLiveMode(false);
     
     let finalPrompt = prompt;
 
@@ -259,6 +402,7 @@ export default function App() {
     setCurrentImage(null);
     setIsComparing(false);
     setTempUpscaledImage(null);
+    setIsLiveMode(false);
     setError(null);
   };
 
@@ -329,6 +473,12 @@ export default function App() {
     setImageDimensions(null); 
     setIsComparing(false);
     setTempUpscaledImage(null);
+    // Automatically switch to Live Mode if video is available
+    if (image.videoUrl && image.videoStatus === 'success') {
+        setIsLiveMode(true);
+    } else {
+        setIsLiveMode(false);
+    }
     setError(null);
   };
 
@@ -336,15 +486,24 @@ export default function App() {
     if (!currentImage) return;
     const newHistory = history.filter(img => img.id !== currentImage.id);
     setHistory(newHistory);
-    if (newHistory.length > 0) {
-      setCurrentImage(newHistory[0]);
-    } else {
-      setCurrentImage(null);
-    }
+    
     setShowInfo(false);
     setIsComparing(false);
     setTempUpscaledImage(null);
     setError(null);
+
+    if (newHistory.length > 0) {
+      const nextImg = newHistory[0];
+      setCurrentImage(nextImg);
+      if (nextImg.videoUrl && nextImg.videoStatus === 'success') {
+          setIsLiveMode(true);
+      } else {
+          setIsLiveMode(false);
+      }
+    } else {
+      setCurrentImage(null);
+      setIsLiveMode(false);
+    }
   };
 
   const handleToggleBlur = () => {
@@ -368,93 +527,206 @@ export default function App() {
     }
   };
 
+  const handleLiveClick = async () => {
+      if (!currentImage) return;
+
+      // 1. If video exists, just return (toggle is handled in PreviewStage now)
+      if (currentImage.videoUrl) {
+          return;
+      }
+
+      // 2. If already generating, do nothing
+      if (currentImage.videoStatus === 'generating') return;
+
+      // 3. Start Generation
+      let width = imageDimensions?.width || 1024;
+      let height = imageDimensions?.height || 1024;
+
+      // Resolution scaling logic (Specific to Gitee)
+      if (provider === 'gitee') {
+          // Enforce 720p (Short edge 720px)
+          const imgAspectRatio = width / height;
+          if (width >= height) {
+              // Landscape or Square: Set Height to 720
+              height = 720;
+              width = Math.round(height * imgAspectRatio);
+          } else {
+              // Portrait: Set Width to 720
+              width = 720;
+              height = Math.round(width / imgAspectRatio);
+          }
+
+          // Ensure even numbers (common requirement for video encoding)
+          if (width % 2 !== 0) width -= 1;
+          if (height % 2 !== 0) height -= 1;
+      }
+
+      try {
+          const videoPrompt = "make this image come alive, cinematic motion, smooth animation";
+
+          // Capture the provider being used for video generation
+          const currentVideoProvider = provider;
+
+          const loadingImage = { 
+              ...currentImage, 
+              videoStatus: 'generating',
+              videoProvider: currentVideoProvider 
+          } as GeneratedImage;
+
+          setCurrentImage(loadingImage);
+          setHistory(prev => prev.map(img => img.id === loadingImage.id ? loadingImage : img));
+
+          if (currentVideoProvider === 'gitee') {
+              // Gitee: Create Task and let polling handle it
+              const taskId = await createVideoTask(currentImage.url, videoPrompt, width, height);
+              const taskedImage = { ...loadingImage, videoTaskId: taskId } as GeneratedImage;
+              setCurrentImage(taskedImage);
+              setHistory(prev => prev.map(img => img.id === taskedImage.id ? taskedImage : img));
+          } else if (currentVideoProvider === 'huggingface') {
+              // HF: Create Task handles the waiting internally (Long Connection)
+              const videoUrl = await createVideoTaskHF(currentImage.url, videoPrompt, currentImage.seed);
+              // Success
+              const successImage = { ...loadingImage, videoStatus: 'success', videoUrl } as GeneratedImage;
+              setHistory(prev => prev.map(img => img.id === successImage.id ? successImage : img));
+              // Update current if user hasn't switched away
+              setCurrentImage(prev => (prev && prev.id === successImage.id) ? successImage : prev);
+              
+              if (currentImageRef.current?.id === successImage.id) {
+                  setIsLiveMode(true);
+              }
+          }
+
+      } catch (e: any) {
+          console.error("Video Generation Failed", e);
+          const failedImage = { ...currentImage, videoStatus: 'failed', videoError: e.message } as GeneratedImage;
+          setCurrentImage(prev => (prev && prev.id === failedImage.id) ? failedImage : prev);
+          setHistory(prev => prev.map(img => img.id === failedImage.id ? failedImage : img));
+          setError(t.liveError);
+      }
+  };
+
   const handleDownload = async (imageUrl: string, fileName: string) => {
-      // (Simplified logic for brevity, moving core logic out is better but for now we keep it here as requested structure)
-      // Note: Reusing the same download logic as before
+    // If Live mode is active and we have a video URL, download that instead
+    if (isLiveMode && currentImage?.videoUrl) {
+        imageUrl = currentImage.videoUrl;
+        fileName = fileName.replace(/\.(png|jpg|webp)$/, '') + '.mp4';
+    }
+
     if (isDownloading) return;
     setIsDownloading(true);
 
     try {
-      const isWebPUrl = imageUrl.toLowerCase().split('?')[0].endsWith('.webp');
-      const isWebPData = imageUrl.startsWith('data:image/webp');
-      const shouldConvert = isWebPUrl || isWebPData;
+      // 1. Fetch blob (handles CORS if server allows, and Data URLs)
+      let response: Response;
+      try {
+          response = await fetch(imageUrl, { mode: 'cors' });
+          if (!response.ok) throw new Error('Network response was not ok');
+      } catch (e) {
+          console.warn("Fetch failed, trying fallback");
+          // Last resort: Open URL directly.
+          window.open(imageUrl, '_blank');
+          setIsDownloading(false);
+          return;
+      }
+      
+      let blob = await response.blob();
 
-      let converted = false;
-      if (shouldConvert) {
-        try {
-          await new Promise((resolve, reject) => {
-            const img = new Image();
-            img.crossOrigin = "Anonymous";
-            img.src = imageUrl;
-            img.onload = () => {
+      // 2. Convert WebP to PNG if needed (Only for images)
+      if (blob.type.startsWith('image') && (blob.type === 'image/webp' || imageUrl.includes('.webp'))) {
+          try {
+             // Create a temp image to draw to canvas
+             const img = new Image();
+             img.crossOrigin = "Anonymous";
+             const blobUrl = URL.createObjectURL(blob);
+             
+             await new Promise((resolve, reject) => {
+                 img.onload = resolve;
+                 img.onerror = reject;
+                 img.src = blobUrl;
+             });
+             
+             const canvas = document.createElement('canvas');
+             canvas.width = img.naturalWidth;
+             canvas.height = img.naturalHeight;
+             const ctx = canvas.getContext('2d');
+             if (ctx) {
+                 ctx.drawImage(img, 0, 0);
+                 const pngBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+                 if (pngBlob) {
+                     blob = pngBlob;
+                     fileName = fileName.replace(/\.webp$/i, '.png');
+                     if (!fileName.endsWith('.png')) fileName += '.png';
+                 }
+             }
+             URL.revokeObjectURL(blobUrl);
+          } catch (e) {
+              console.warn("Conversion failed, using original blob", e);
+          }
+      }
+
+      // Ensure extension matches blob type if missing
+      if (!fileName.includes('.')) {
+          const type = blob.type.split('/')[1] || 'png';
+          fileName = `${fileName}.${type}`;
+      }
+
+      // 3. Mobile Strategy: Web Share API (Primary for iOS/Mobile)
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+
+      if (isMobile) {
+          const file = new File([blob], fileName, { type: blob.type });
+          
+          const nav = navigator as any;
+          const canShare = nav.canShare && nav.canShare({ files: [file] });
+
+          if (canShare) {
               try {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth;
-                canvas.height = img.naturalHeight;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) { reject(new Error('Canvas context not found')); return; }
-                ctx.drawImage(img, 0, 0);
-                canvas.toBlob((blob) => {
-                  if (!blob) { reject(new Error('Canvas serialization failed')); return; }
-                  const url = window.URL.createObjectURL(blob);
-                  const link = document.createElement('a');
-                  link.href = url;
-                  let safeFileName = fileName.replace(/\.webp$/i, '');
-                  if (!safeFileName.toLowerCase().endsWith('.png')) { safeFileName += '.png'; }
-                  link.download = safeFileName;
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-                  window.URL.revokeObjectURL(url);
-                  resolve(true);
-                }, 'image/png');
-              } catch (err) { reject(err); }
-            };
-            img.onerror = (e) => reject(new Error('Image load failed'));
-          });
-          converted = true;
-        } catch (conversionError) {
-          console.warn("PNG conversion failed, falling back", conversionError);
-        }
+                  await nav.share({
+                      files: [file],
+                      title: 'Peinture AI Asset',
+                  });
+                  setIsDownloading(false);
+                  return; // Success, shared
+              } catch (e: any) {
+                  if (e.name !== 'AbortError') console.warn("Share failed", e);
+                  if (e.name === 'AbortError') {
+                      setIsDownloading(false);
+                      return; // User cancelled
+                  }
+                  // If share failed (not cancelled), fall through to anchor method
+              }
+          }
       }
 
-      if (!converted) {
-        if (imageUrl.startsWith('data:')) {
-            const link = document.createElement('a');
-            link.href = imageUrl;
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        } else {
-            const response = await fetch(imageUrl, { mode: 'cors' });
-            if (!response.ok) throw new Error('Network response was not ok');
-            const blob = await response.blob();
-            const blobUrl = window.URL.createObjectURL(blob);
-            let extension = 'png';
-            if (blob.type) {
-                const typeParts = blob.type.split('/');
-                if (typeParts.length > 1) extension = typeParts[1];
-            }
-            const finalFileName = fileName.includes('.') ? fileName : `${fileName}.${extension}`;
-            const link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = finalFileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(blobUrl);
-        }
-      }
+      // 4. Desktop/Fallback Strategy: Anchor Download
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Cleanup
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+
     } catch (e) {
-      console.error("All download methods failed:", e);
+      console.error("Download failed", e);
       window.open(imageUrl, '_blank');
     } finally {
-        setIsDownloading(false);
+      setIsDownloading(false);
     }
   };
 
   const isWorking = isLoading;
+  const isLiveGenerating = currentImage?.videoStatus === 'generating';
+  
+  // Toolbar Visibility Logic:
+  // Hide if:
+  // 1. Image generation is working (isLoading/isWorking)
+  // 2. Video generation is working (isLiveGenerating)
+  // So we ONLY hide if isWorking (main image gen).
+  const shouldHideToolbar = isWorking; 
 
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-gradient-brilliant">
@@ -585,6 +857,7 @@ export default function App() {
                 isTranslating={isTranslating}
                 elapsedTime={elapsedTime}
                 error={error}
+                onCloseError={() => setError(null)}
                 isComparing={isComparing}
                 tempUpscaledImage={tempUpscaledImage}
                 showInfo={showInfo}
@@ -594,22 +867,30 @@ export default function App() {
                 t={t}
                 copiedPrompt={copiedPrompt}
                 handleCopyPrompt={handleCopyPrompt}
+                isLiveMode={isLiveMode}
+                onToggleLiveMode={() => setIsLiveMode(!isLiveMode)}
             >
-                <ImageToolbar 
-                    currentImage={currentImage}
-                    isComparing={isComparing}
-                    showInfo={showInfo}
-                    setShowInfo={setShowInfo}
-                    isUpscaling={isUpscaling}
-                    isDownloading={isDownloading}
-                    handleUpscale={handleUpscale}
-                    handleToggleBlur={handleToggleBlur}
-                    handleDownload={() => currentImage && handleDownload(currentImage.url, `generated-${currentImage.id}`)}
-                    handleDelete={handleDelete}
-                    handleCancelUpscale={handleCancelUpscale}
-                    handleApplyUpscale={handleApplyUpscale}
-                    t={t}
-                />
+                {!shouldHideToolbar && (
+                    <ImageToolbar 
+                        currentImage={currentImage}
+                        isComparing={isComparing}
+                        showInfo={showInfo}
+                        setShowInfo={setShowInfo}
+                        isUpscaling={isUpscaling}
+                        isDownloading={isDownloading}
+                        handleUpscale={handleUpscale}
+                        handleToggleBlur={handleToggleBlur}
+                        handleDownload={() => currentImage && handleDownload(currentImage.url, `generated-${currentImage.id}`)}
+                        handleDelete={handleDelete}
+                        handleCancelUpscale={handleCancelUpscale}
+                        handleApplyUpscale={handleApplyUpscale}
+                        t={t}
+                        isLiveMode={isLiveMode}
+                        onLiveClick={handleLiveClick}
+                        isLiveGenerating={isLiveGenerating}
+                        provider={provider}
+                    />
+                )}
             </PreviewStage>
 
             {/* Gallery Strip */}

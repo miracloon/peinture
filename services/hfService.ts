@@ -8,6 +8,7 @@ const OVIS_IMAGE_BASE_API_URL = "https://aidc-ai-ovis-image-7b.hf.space";
 const FLUX_SCHNELL_BASE_API_URL = "https://black-forest-labs-flux-1-schnell.hf.space";
 const UPSCALER_BASE_API_URL = "https://tuan2308-upscaler.hf.space";
 const POLLINATIONS_API_URL = "https://text.pollinations.ai/openai";
+const WAN2_VIDEO_API_URL = "https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space";
 
 // --- Token Management System ---
 
@@ -455,4 +456,67 @@ export const optimizePrompt = async (originalPrompt: string, lang: string): Prom
     console.error("Prompt Optimization Error:", error);
     throw new Error("error_prompt_optimization_failed");
   }
+};
+
+// --- Video Generation Services (HF) ---
+
+const VIDEO_NEGATIVE_PROMPT = "Vivid colors, overexposed, static, blurry details, subtitles, style, artwork, painting, image, still, overall grayish tone, worst quality, low quality, JPEG compression artifacts, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn face, deformed, disfigured, malformed limbs, fused fingers, still image, cluttered background, three legs, many people in the background, walking backward";
+
+export const createVideoTaskHF = async (imageUrl: string, prompt: string, seed: number = 42): Promise<string> => {
+  return runWithTokenRetry(async (token) => {
+    try {
+      const finalSeed = seed ?? Math.floor(Math.random() * 2147483647);
+      
+      // Step 1: POST to queue
+      const queue = await fetch(WAN2_VIDEO_API_URL + '/gradio_api/call/generate_video', {
+        method: "POST",
+        headers: getAuthHeaders(token),
+        body: JSON.stringify({
+          data: [
+            { "path": imageUrl, "meta": { "_type": "gradio.FileData" } },
+            prompt,
+            6, // Steps
+            VIDEO_NEGATIVE_PROMPT,
+            3, // Duration
+            1, // Guidance 1
+            1, // Guidance 2
+            finalSeed,
+            false // Randomize seed
+          ]
+        })
+      });
+      const { event_id } = await queue.json();
+
+      // Step 2: Loop to check status. Since HF API relies on event stream which might be long-lived,
+      // we use fetch without abort controller to read the stream until it ends (server closes).
+      try {
+        // Standard fetch will wait for the response body to fully arrive if we use .text()
+        // This effectively waits for the stream to complete or close.
+        const response = await fetch(WAN2_VIDEO_API_URL + '/gradio_api/call/generate_video/' + event_id, {
+          headers: getAuthHeaders(token)
+        });
+
+        const text = await response.text();
+        const data = extractCompleteEventData(text);
+        
+        if (data) {
+            const vid = data[0];
+            if (vid?.video?.url) return vid.video.url;
+            if (vid?.url) return vid.url;
+            return vid;
+        }
+        
+        // If we reach here, the stream closed but no complete event was found.
+        // This could be a network glitch or server timeout. We retry the connection.
+      } catch (e: any) {
+        if (e.message === QUOTA_ERROR_KEY) throw e;
+        // Ignore other errors (timeout, network) and retry after sleep
+        console.warn("HF Video Stream interrupted, retrying...", e);
+      }
+
+    } catch (error) {
+      console.error("Create Video Task HF Error:", error);
+      throw error;
+    }
+  });
 };

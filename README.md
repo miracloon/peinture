@@ -19,6 +19,7 @@ A sleek, dark-themed AI image generator built with React, TypeScript, and Tailwi
 - **Auto Translation**: Intelligent detection and translation of non-English prompts to optimize performance for English-centric models like **FLUX**.
 - **Prompt Optimization**: Integrated AI prompt enhancer that expands simple ideas into detailed, cinematic descriptions (powered by Pollinations.ai for Hugging Face, DeepSeek for Gitee AI and Model Scope).
 - **Advanced Controls**: Fine-tune your creations with adjustable **inference steps**, **seed control**, **guidance scale** (for Flux), and **HD Mode** (High Definition).
+- **Live Motion**: Transform static images into dynamic short videos using advanced Image-to-Video models (Wan2.2). Experience cinematic motion and bring your art to life (Supported on Hugging Face & Gitee AI).
 - **History Gallery**: Automatically saves generated images locally. View, zoom, pan, and manage your creation history.
 - **4x Resolution**: AI upscaling technology to increase image resolution up to 4x (Only supported on Hugging Face).
 - **Multilingual**: Full support for English and Chinese (中文) interfaces.
@@ -154,6 +155,9 @@ A: You can enter multiple tokens separated by commas. The system automatically c
 
 **Q: Which services power this app?**
 A: Image generation for Hugging Face is powered by Hugging Face, and prompt optimization is provided by Pollinations.ai. Image generation and prompt optimization for Gitee AI are provided by Gitee AI. Image generation and prompt optimization for Model Scope are provided by Model Scope.
+
+**Q: What is Live Motion?**
+A: The Live feature transforms static images into dynamic short videos. By leveraging advanced Image-to-Video models (such as Wan2.2), the AI analyzes the scene's composition to generate natural motion and cinematic effects, bringing your creation to life. Currently, only Hugging Face and Gitee AI are supported.
 
 **Q: Can I host this myself?**
 A: Yes! This is an open-source project licensed under MIT. You can fork the repository from GitHub and deploy it to Vercel, Cloudflare Pages, or any static hosting service.

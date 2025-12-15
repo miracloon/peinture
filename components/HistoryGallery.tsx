@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { GeneratedImage } from '../types';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Film, Loader2 } from 'lucide-react';
 
 interface HistoryGalleryProps {
   images: GeneratedImage[];
@@ -57,7 +57,7 @@ export const HistoryGallery: React.FC<HistoryGalleryProps> = ({ images, onSelect
 
   return (
     <div className="relative mt-4 w-full">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2">
         <button
           onClick={() => scroll('left')}
           disabled={!canScrollLeft}
@@ -71,7 +71,7 @@ export const HistoryGallery: React.FC<HistoryGalleryProps> = ({ images, onSelect
             <div 
                 ref={scrollContainerRef}
                 onScroll={checkScroll}
-                className="flex items-center gap-3 p-2 overflow-x-auto scrollbar-hide snap-x"
+                className="flex items-center gap-3 p-3 overflow-x-auto scrollbar-hide snap-x"
             >
             {images.map((img) => (
                 <div
@@ -89,6 +89,21 @@ export const HistoryGallery: React.FC<HistoryGalleryProps> = ({ images, onSelect
                     loading="lazy"
                     onContextMenu={(e) => e.preventDefault()}
                 />
+                
+                {/* Live Video Indicator */}
+                {img.videoUrl && (
+                    <div className="absolute top-1 right-1 bg-black/60 rounded-full p-1 border border-white/20">
+                        <Film className="w-3 h-3 text-white" />
+                    </div>
+                )}
+                
+                {/* Generating Loading Indicator */}
+                {img.videoStatus === 'generating' && (
+                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                         <Loader2 className="w-6 h-6 text-white/80 animate-spin" />
+                     </div>
+                )}
+                
                 </div>
             ))}
             </div>
