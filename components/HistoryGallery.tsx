@@ -17,9 +17,9 @@ export const HistoryGallery: React.FC<HistoryGalleryProps> = ({ images, onSelect
   const checkScroll = () => {
     if (scrollContainerRef.current) {
       const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current;
-      // Use a small tolerance (1px) for fractional pixel issues
-      setCanScrollLeft(scrollLeft > 1);
-      setCanScrollRight(Math.ceil(scrollLeft + clientWidth) < scrollWidth);
+      // Use a small tolerance (10px) for fractional pixel issues
+      setCanScrollLeft(scrollLeft > 10);
+      setCanScrollRight(Math.ceil(scrollLeft + clientWidth) < scrollWidth - 10);
     }
   };
 

@@ -530,11 +530,6 @@ export default function App() {
   const handleLiveClick = async () => {
       if (!currentImage) return;
 
-      // 1. If video exists, just return (toggle is handled in PreviewStage now)
-      if (currentImage.videoUrl) {
-          return;
-      }
-
       // 2. If already generating, do nothing
       if (currentImage.videoStatus === 'generating') return;
 
@@ -851,25 +846,29 @@ export default function App() {
           <div className="flex-1 flex flex-col flex-grow overflow-x-hidden">
             
             {/* Main Preview Area */}
-            <PreviewStage 
-                currentImage={currentImage}
-                isWorking={isWorking}
-                isTranslating={isTranslating}
-                elapsedTime={elapsedTime}
-                error={error}
-                onCloseError={() => setError(null)}
-                isComparing={isComparing}
-                tempUpscaledImage={tempUpscaledImage}
-                showInfo={showInfo}
-                setShowInfo={setShowInfo}
-                imageDimensions={imageDimensions}
-                setImageDimensions={setImageDimensions}
-                t={t}
-                copiedPrompt={copiedPrompt}
-                handleCopyPrompt={handleCopyPrompt}
-                isLiveMode={isLiveMode}
-                onToggleLiveMode={() => setIsLiveMode(!isLiveMode)}
-            >
+            <div className="relative group w-full">
+                <PreviewStage 
+                    currentImage={currentImage}
+                    isWorking={isWorking}
+                    isTranslating={isTranslating}
+                    elapsedTime={elapsedTime}
+                    error={error}
+                    onCloseError={() => setError(null)}
+                    isComparing={isComparing}
+                    tempUpscaledImage={tempUpscaledImage}
+                    showInfo={showInfo}
+                    setShowInfo={setShowInfo}
+                    imageDimensions={imageDimensions}
+                    setImageDimensions={setImageDimensions}
+                    t={t}
+                    copiedPrompt={copiedPrompt}
+                    handleCopyPrompt={handleCopyPrompt}
+                    isLiveMode={isLiveMode}
+                    onToggleLiveMode={() => setIsLiveMode(!isLiveMode)}
+                >
+                   {/* No children passed as toolbar is moved out */}
+                </PreviewStage>
+
                 {!shouldHideToolbar && (
                     <ImageToolbar 
                         currentImage={currentImage}
@@ -891,7 +890,7 @@ export default function App() {
                         provider={provider}
                     />
                 )}
-            </PreviewStage>
+            </div>
 
             {/* Gallery Strip */}
             <HistoryGallery 

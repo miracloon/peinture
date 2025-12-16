@@ -269,7 +269,7 @@ export const optimizePromptGitee = async (originalPrompt: string, lang: string):
 
 // --- Video Generation Services ---
 
-const VIDEO_NEGATIVE_PROMPT = "Vivid colors, overexposed, static, blurry details, subtitles, style, artwork, painting, image, still, overall grayish tone, worst quality, low quality, JPEG compression artifacts, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn face, deformed, disfigured, malformed limbs, fused fingers, still image, cluttered background, three legs, many people in the background, walking backward";
+const VIDEO_NEGATIVE_PROMPT = "Vivid colors, overexposed, static, blurry details, subtitles, style, artwork, painting, image, still, overall grayish tone, worst quality, low quality, JPEG compression artifacts, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn face, deformed, disfigured, malformed limbs, fused fingers, still image, cluttered background, three legs, many people in the background, walking backward, Screen shaking";
 
 export const createVideoTask = async (
   imageUrl: string, 
@@ -284,9 +284,9 @@ export const createVideoTask = async (
       formData.append('prompt', videoPrompt);
       formData.append('negative_prompt', VIDEO_NEGATIVE_PROMPT);
       formData.append('model', 'Wan2_2-I2V-A14B');
-      formData.append('num_inferenece_steps', '6');
+      formData.append('num_inferenece_steps', '10');
       formData.append('num_frames', '48');
-      formData.append('guidance_scale', '1');
+      formData.append('guidance_scale', '4');
       formData.append('height', height.toString());
       formData.append('width', width.toString());
 
