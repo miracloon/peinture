@@ -152,7 +152,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                                         max={currentModelConfig.max}
                                         value={steps}
                                         onChange={(e) => setSteps(Number(e.target.value))}
-                                        className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                        className="custom-range text-purple-500"
                                     />
                                 </div>
                             </div>
@@ -172,7 +172,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                                             step={guidanceScaleConfig.step}
                                             value={guidanceScale}
                                             onChange={(e) => setGuidanceScale(Number(e.target.value))}
-                                            className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                            className="custom-range text-purple-500"
                                         />
                                     </div>
                                 </div>

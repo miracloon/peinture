@@ -31,6 +31,7 @@ export type ModelOption =
     | "flux-1-schnell"
     | "FLUX_1-Krea-dev"
     | "FLUX.1-dev"
+    | "FLUX.2-dev"
     | "Tongyi-MAI/Z-Image-Turbo"
     | "Qwen/Qwen-Image"
     | "black-forest-labs/FLUX.2-dev"

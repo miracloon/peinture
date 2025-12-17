@@ -1,6 +1,7 @@
 
+
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
-import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel } from "./utils";
+import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel, getVideoSettings } from "./utils";
 
 const GITEE_GENERATE_API_URL = "https://ai.gitee.com/v1/images/generations";
 const GITEE_CHAT_API_URL = "https://ai.gitee.com/v1/chat/completions";
@@ -141,7 +142,7 @@ const getDimensions = (ratio: AspectRatioOption, enableHD: boolean, model: Model
   if (!enableHD) return base;
 
   let multiplier = 2; // Default multiplier for Z-Image Turbo
-  if (['flux-1-schnell', 'FLUX_1-Krea-dev', 'FLUX.1-dev'].includes(model)) {
+  if (['flux-1-schnell', 'FLUX_1-Krea-dev', 'FLUX.1-dev', 'FLUX.2-dev'].includes(model)) {
       multiplier = 1.5;
   }
 
@@ -273,20 +274,23 @@ const VIDEO_NEGATIVE_PROMPT = "Vivid colors, overexposed, static, blurry details
 
 export const createVideoTask = async (
   imageUrl: string, 
-  videoPrompt: string, 
   width: number, 
   height: number
 ): Promise<string> => {
   return runWithGiteeTokenRetry(async (token) => {
     try {
+      const settings = getVideoSettings('gitee');
+      // Convert Duration (seconds) to Frames. 1s = 16 frames.
+      const numFrames = Math.round(settings.duration * 16);
+
       const formData = new FormData();
       formData.append('image', imageUrl); 
-      formData.append('prompt', videoPrompt);
+      formData.append('prompt', settings.prompt);
       formData.append('negative_prompt', VIDEO_NEGATIVE_PROMPT);
       formData.append('model', 'Wan2_2-I2V-A14B');
-      formData.append('num_inferenece_steps', '10');
-      formData.append('num_frames', '48');
-      formData.append('guidance_scale', '4');
+      formData.append('num_inferenece_steps', settings.steps.toString());
+      formData.append('num_frames', numFrames.toString());
+      formData.append('guidance_scale', settings.guidance.toString());
       formData.append('height', height.toString());
       formData.append('width', width.toString());
 

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { generateImage, optimizePrompt, upscaler, createVideoTaskHF } from './services/hfService';
 import { generateGiteeImage, optimizePromptGitee, createVideoTask, getGiteeTaskStatus } from './services/giteeService';
@@ -557,8 +558,6 @@ export default function App() {
       }
 
       try {
-          const videoPrompt = "make this image come alive, cinematic motion, smooth animation";
-
           // Capture the provider being used for video generation
           const currentVideoProvider = provider;
 
@@ -573,13 +572,15 @@ export default function App() {
 
           if (currentVideoProvider === 'gitee') {
               // Gitee: Create Task and let polling handle it
-              const taskId = await createVideoTask(currentImage.url, videoPrompt, width, height);
+              // Prompt is fetched from settings inside the service
+              const taskId = await createVideoTask(currentImage.url, width, height);
               const taskedImage = { ...loadingImage, videoTaskId: taskId } as GeneratedImage;
               setCurrentImage(taskedImage);
               setHistory(prev => prev.map(img => img.id === taskedImage.id ? taskedImage : img));
           } else if (currentVideoProvider === 'huggingface') {
               // HF: Create Task handles the waiting internally (Long Connection)
-              const videoUrl = await createVideoTaskHF(currentImage.url, videoPrompt, currentImage.seed);
+              // Prompt is fetched from settings inside the service
+              const videoUrl = await createVideoTaskHF(currentImage.url, currentImage.seed);
               // Success
               const successImage = { ...loadingImage, videoStatus: 'success', videoUrl } as GeneratedImage;
               setHistory(prev => prev.map(img => img.id === successImage.id ? successImage : img));

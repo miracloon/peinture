@@ -16,7 +16,8 @@ My core purpose is to meticulously rewrite, expand, and enhance user's image pro
 I transform prompts to create visually stunning images by rigorously optimizing elements such as dramatic lighting, intricate textures, compelling composition, and a distinctive artistic style.
 My generated prompt output will be strictly under 300 words. Prior to outputting, I will internally validate that the refined prompt strictly adheres to the word count limit and effectively incorporates the intended stylistic and technical enhancements.
 My output will consist exclusively of the refined image prompt text. It will commence immediately, with no leading whitespace.
-The text will strictly avoid markdown, quotation marks, conversational preambles, explanations, or concluding remarks.`;
+The text will strictly avoid markdown, quotation marks, conversational preambles, explanations, or concluding remarks. Please describe the content using prose-style sentences.
+**The character's face is clearly visible and unobstructed.**`;
 
 const SYSTEM_PROMPT_STORAGE_KEY = 'custom_system_prompt';
 
@@ -60,6 +61,59 @@ export const saveOptimizationModel = (provider: string, model: string) => {
       } else {
           localStorage.setItem(OPTIM_MODEL_STORAGE_PREFIX + provider, model.trim());
       }
+  }
+};
+
+// --- Video Settings Management ---
+
+export interface VideoSettings {
+  prompt: string;
+  duration: number; // in seconds
+  steps: number;
+  guidance: number;
+}
+
+export const DEFAULT_VIDEO_SETTINGS: Record<string, VideoSettings> = {
+  huggingface: {
+    prompt: "make this image come alive, cinematic motion, smooth animation",
+    duration: 3,
+    steps: 6,
+    guidance: 1
+  },
+  gitee: {
+    prompt: "make this image come alive, cinematic motion, smooth animation",
+    duration: 3,
+    steps: 10,
+    guidance: 4
+  },
+  modelscope: {
+    prompt: "make this image come alive, cinematic motion, smooth animation",
+    duration: 3,
+    steps: 10,
+    guidance: 4
+  }
+};
+
+const VIDEO_SETTINGS_STORAGE_PREFIX = 'video_settings_';
+
+export const getVideoSettings = (provider: string): VideoSettings => {
+  const defaults = DEFAULT_VIDEO_SETTINGS[provider] || DEFAULT_VIDEO_SETTINGS['huggingface'];
+  if (typeof localStorage === 'undefined') return defaults;
+  
+  try {
+    const raw = localStorage.getItem(VIDEO_SETTINGS_STORAGE_PREFIX + provider);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw);
+    // Ensure all keys exist by merging with defaults
+    return { ...defaults, ...parsed };
+  } catch {
+    return defaults;
+  }
+};
+
+export const saveVideoSettings = (provider: string, settings: VideoSettings) => {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(VIDEO_SETTINGS_STORAGE_PREFIX + provider, JSON.stringify(settings));
   }
 };
 

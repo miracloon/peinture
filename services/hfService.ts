@@ -1,6 +1,7 @@
 
+
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
-import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel } from "./utils";
+import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel, getVideoSettings } from "./utils";
 
 const ZIMAGE_BASE_API_URL = "https://mrfakename-z-image-turbo.hf.space";
 const QWEN_IMAGE_BASE_API_URL = "https://mcp-tools-qwen-image-fast.hf.space";
@@ -460,12 +461,13 @@ export const optimizePrompt = async (originalPrompt: string, lang: string): Prom
 
 // --- Video Generation Services (HF) ---
 
-const VIDEO_NEGATIVE_PROMPT = "Vivid colors, overexposed, static, blurry details, subtitles, style, artwork, painting, image, still, overall grayish tone, worst quality, low quality, JPEG compression artifacts, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn face, deformed, disfigured, malformed limbs, fused fingers, still image, cluttered background, three legs, many people in the background, walking backward";
+const VIDEO_NEGATIVE_PROMPT = "Vivid colors, overexposed, static, blurry details, subtitles, style, artwork, painting, image, still, overall grayish tone, worst quality, low quality, JPEG compression artifacts, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn face, deformed, disfigured, malformed limbs, fused fingers, still image, cluttered background, three legs, many people in the background, walking backward, Screen shaking";
 
-export const createVideoTaskHF = async (imageUrl: string, prompt: string, seed: number = 42): Promise<string> => {
+export const createVideoTaskHF = async (imageUrl: string, seed: number = 42): Promise<string> => {
   return runWithTokenRetry(async (token) => {
     try {
       const finalSeed = seed ?? Math.floor(Math.random() * 2147483647);
+      const settings = getVideoSettings('huggingface');
       
       // Step 1: POST to queue
       const queue = await fetch(WAN2_VIDEO_API_URL + '/gradio_api/call/generate_video', {
@@ -474,12 +476,12 @@ export const createVideoTaskHF = async (imageUrl: string, prompt: string, seed: 
         body: JSON.stringify({
           data: [
             { "path": imageUrl, "meta": { "_type": "gradio.FileData" } },
-            prompt,
-            6, // Steps
+            settings.prompt,
+            settings.steps, // Steps from settings
             VIDEO_NEGATIVE_PROMPT,
-            3, // Duration
-            1, // Guidance 1
-            1, // Guidance 2
+            settings.duration, // Duration from settings
+            settings.guidance, // Guidance 1 from settings
+            settings.guidance, // Guidance 2 from settings
             finalSeed,
             false // Randomize seed
           ]

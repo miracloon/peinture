@@ -52,6 +52,10 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
     // Use the provider from props (current selected provider) to determine button visibility
     const showLiveButton = provider === 'gitee' || provider === 'huggingface';
     const showUpscaleButton = provider === 'huggingface';
+    
+    const isBusy = isLiveGenerating || isGeneratingVideoPrompt;
+    // Disable if busy (generating) OR if already in Live Mode (viewing video)
+    const isLiveDisabled = isBusy || isLiveMode;
 
     return (
         <div className="absolute bottom-6 inset-x-0 flex justify-center pointer-events-none z-40">
@@ -94,8 +98,14 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
                              <Tooltip content={isGeneratingVideoPrompt ? t.liveGeneratingDesc : (isLiveGenerating ? t.liveGenerating : t.live)}>
                                 <button
                                     onClick={onLiveClick}
-                                    disabled={isLiveGenerating || isGeneratingVideoPrompt}
-                                    className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${isLiveMode ? 'text-red-400 bg-red-500/10' : 'text-white/70 hover:text-red-400 hover:bg-white/10'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                                    disabled={isLiveDisabled}
+                                    className={`
+                                        flex items-center justify-center w-10 h-10 rounded-xl transition-all
+                                        ${isLiveMode ? 'text-red-400 bg-red-500/10' : 'text-white/70 hover:text-red-400 hover:bg-white/10'}
+                                        ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}
+                                        ${isLiveMode && !isBusy ? 'cursor-default' : ''}
+                                        ${!isLiveMode && !isBusy ? 'cursor-pointer' : ''}
+                                    `}
                                 >
                                     {(isLiveGenerating || isGeneratingVideoPrompt) ? (
                                         <LucideLoader2 className="w-5 h-5 animate-spin text-red-400" />

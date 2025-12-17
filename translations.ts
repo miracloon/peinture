@@ -1,4 +1,5 @@
 
+
 export type Language = 'en' | 'zh';
 
 export const translations = {
@@ -74,6 +75,16 @@ export const translations = {
     // Tabs
     tab_general: "General",
     tab_prompt: "Prompt",
+    tab_live: "Live",
+
+    // Live Settings
+    videoPrompt: "Live Prompt",
+    videoDuration: "Duration",
+    videoSteps: "Steps",
+    videoGuidance: "Guidance",
+    seconds: "s",
+    modelWan2: "Wan 2.1",
+    liveNotSupported: "Live Video is not supported for this provider yet.",
 
     // System Prompts
     systemPrompts: "Role Setting",
@@ -200,6 +211,16 @@ export const translations = {
     // Tabs
     tab_general: "通用",
     tab_prompt: "提示词",
+    tab_live: "Live 图",
+
+    // Live Settings
+    videoPrompt: "Live 提示词",
+    videoDuration: "时长",
+    videoSteps: "步数",
+    videoGuidance: "相关性",
+    seconds: "秒",
+    modelWan2: "Wan 2.1",
+    liveNotSupported: "当前服务商暂不支持 Live 图功能。",
 
     // System Prompts
     systemPrompts: "角色设定",

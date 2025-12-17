@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, KeyRound, Languages, ShieldCheck, ShieldAlert, Database, Eye, EyeOff, MessageSquare, RotateCcw, Settings2, MessageSquareText, Brain } from 'lucide-react';
+import { X, Save, KeyRound, Languages, ShieldCheck, ShieldAlert, Database, Eye, EyeOff, MessageSquare, RotateCcw, Settings2, MessageSquareText, Brain, Film, Clock, Layers, Sparkles } from 'lucide-react';
 import { Language } from '../translations';
 import { getTokenStats } from '../services/hfService';
 import { getGiteeTokenStats } from '../services/giteeService';
@@ -12,7 +12,11 @@ import {
     DEFAULT_SYSTEM_PROMPT_CONTENT,
     getOptimizationModel,
     saveOptimizationModel,
-    DEFAULT_OPTIMIZATION_MODELS
+    DEFAULT_OPTIMIZATION_MODELS,
+    getVideoSettings,
+    saveVideoSettings,
+    DEFAULT_VIDEO_SETTINGS,
+    VideoSettings
 } from '../services/utils';
 
 interface SettingsModalProps {
@@ -26,7 +30,7 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang, setLang, t, provider }) => {
     // Tab State
-    const [activeTab, setActiveTab] = useState<'general' | 'prompt'>('general');
+    const [activeTab, setActiveTab] = useState<'general' | 'prompt' | 'live'>('general');
 
     // HF Token State
     const [token, setToken] = useState('');
@@ -48,6 +52,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
 
     // Optimization Model State
     const [optimModel, setOptimModel] = useState('');
+
+    // Video Settings State
+    const [videoSettings, setVideoSettings] = useState<VideoSettings>(DEFAULT_VIDEO_SETTINGS['huggingface']);
 
     useEffect(() => {
         if (isOpen) {
@@ -71,6 +78,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
 
             // Load Optimization Model for current provider
             setOptimModel(getOptimizationModel(provider));
+
+            // Load Video Settings for current provider
+            setVideoSettings(getVideoSettings(provider));
         }
     }, [isOpen, provider]);
 
@@ -143,6 +153,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
         }
     };
 
+    // Video Settings Handlers
+    const handleRestoreVideoDefaults = () => {
+        setVideoSettings(DEFAULT_VIDEO_SETTINGS[provider] || DEFAULT_VIDEO_SETTINGS['huggingface']);
+    };
+
     const handleSave = () => {
         localStorage.setItem('huggingFaceToken', token.trim());
         localStorage.setItem('giteeToken', giteeToken.trim());
@@ -150,6 +165,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
         
         saveSystemPromptContent(systemPrompt);
         saveOptimizationModel(provider, optimModel);
+        saveVideoSettings(provider, videoSettings);
         
         onClose();
     };
@@ -172,24 +188,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                 </div>
 
                 {/* Tab Navigation */}
-                <div className="flex items-center px-5 border-b border-white/[0.06] space-x-8 flex-shrink-0">
+                <div className="flex items-center px-5 border-b border-white/[0.06] space-x-6 flex-shrink-0">
                     <button 
                         onClick={() => setActiveTab('general')}
-                        className={`group relative py-4 text-sm font-medium transition-colors duration-300 flex items-center gap-2.5 ${activeTab === 'general' ? 'text-white' : 'text-white/40 hover:text-white/80'}`}
+                        className={`group relative py-4 text-sm font-medium transition-colors duration-300 flex items-center gap-2 ${activeTab === 'general' ? 'text-white' : 'text-white/40 hover:text-white/80'}`}
                     >
                         <Settings2 className={`w-4 h-4 transition-colors duration-300 ${activeTab === 'general' ? 'text-purple-400' : 'text-current group-hover:text-purple-400/70'}`} />
                         {t.tab_general}
-                        {/* Animated Underline */}
                         <span className={`absolute bottom-0 left-0 w-full h-0.5 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full shadow-[0_-2px_10px_rgba(168,85,247,0.6)] transition-all duration-300 ease-out origin-center ${activeTab === 'general' ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-0'}`} />
                     </button>
                     <button 
                         onClick={() => setActiveTab('prompt')}
-                        className={`group relative py-4 text-sm font-medium transition-colors duration-300 flex items-center gap-2.5 ${activeTab === 'prompt' ? 'text-white' : 'text-white/40 hover:text-white/80'}`}
+                        className={`group relative py-4 text-sm font-medium transition-colors duration-300 flex items-center gap-2 ${activeTab === 'prompt' ? 'text-white' : 'text-white/40 hover:text-white/80'}`}
                     >
                         <MessageSquareText className={`w-4 h-4 transition-colors duration-300 ${activeTab === 'prompt' ? 'text-purple-400' : 'text-current group-hover:text-purple-400/70'}`} />
                         {t.tab_prompt}
-                        {/* Animated Underline */}
                         <span className={`absolute bottom-0 left-0 w-full h-0.5 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full shadow-[0_-2px_10px_rgba(168,85,247,0.6)] transition-all duration-300 ease-out origin-center ${activeTab === 'prompt' ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-0'}`} />
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('live')}
+                        className={`group relative py-4 text-sm font-medium transition-colors duration-300 flex items-center gap-2 ${activeTab === 'live' ? 'text-white' : 'text-white/40 hover:text-white/80'}`}
+                    >
+                        <Film className={`w-4 h-4 transition-colors duration-300 ${activeTab === 'live' ? 'text-purple-400' : 'text-current group-hover:text-purple-400/70'}`} />
+                        {t.tab_live}
+                        <span className={`absolute bottom-0 left-0 w-full h-0.5 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full shadow-[0_-2px_10px_rgba(168,85,247,0.6)] transition-all duration-300 ease-out origin-center ${activeTab === 'live' ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-0'}`} />
                     </button>
                 </div>
                 
@@ -197,7 +219,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                 <div className="flex-1 overflow-hidden relative">
                     <div 
                         className="flex h-full transition-transform duration-500 cubic-bezier(0.4, 0, 0.2, 1)"
-                        style={{ transform: activeTab === 'general' ? 'translateX(0%)' : 'translateX(-100%)' }}
+                        style={{ transform: activeTab === 'general' ? 'translateX(0%)' : (activeTab === 'prompt' ? 'translateX(-100%)' : 'translateX(-200%)') }}
                     >
                         {/* Tab 1: General */}
                         <div className="w-full h-full flex-shrink-0 overflow-y-auto custom-scrollbar p-5">
@@ -458,6 +480,108 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                     </p>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Tab 3: Live Settings */}
+                        <div className="w-full h-full flex-shrink-0 overflow-y-auto custom-scrollbar p-5">
+                            {provider === 'modelscope' ? (
+                                <div className="flex flex-col items-center justify-center h-full text-white/40 space-y-4">
+                                    <Film className="w-12 h-12 opacity-50" />
+                                    <p>{t.liveNotSupported}</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    {/* Video Prompt */}
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <label className="flex items-center gap-2 text-sm font-medium text-white/80">
+                                                <MessageSquare className="w-4 h-4 text-purple-400" />
+                                                {t.videoPrompt}
+                                            </label>
+                                            <button
+                                                onClick={handleRestoreVideoDefaults}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white bg-white/5 hover:bg-white/10 transition-colors border border-transparent hover:border-white/10"
+                                            >
+                                                <RotateCcw className="w-3.5 h-3.5" />
+                                                {t.restoreDefault}
+                                            </button>
+                                        </div>
+                                        <textarea 
+                                            value={videoSettings.prompt}
+                                            onChange={(e) => setVideoSettings({ ...videoSettings, prompt: e.target.value })}
+                                            className="w-full h-24 bg-white/[0.03] border border-white/10 rounded-xl p-4 text-sm text-white/90 placeholder:text-white/20 focus:outline-0 focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500/50 hover:border-white/20 resize-none custom-scrollbar leading-relaxed font-mono transition-all duration-300 ease-out"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-6">
+                                        {/* Duration */}
+                                        <div className="flex items-center justify-between gap-4">
+                                            <label className="flex items-center gap-2 text-sm font-medium text-white/80 min-w-[6rem]">
+                                                <Clock className="w-4 h-4 text-blue-400" />
+                                                {t.videoDuration}
+                                            </label>
+                                            <div className="flex flex-1 items-center gap-3">
+                                                <input
+                                                    type="range"
+                                                    min="0.5"
+                                                    max="5"
+                                                    step="0.5"
+                                                    value={videoSettings.duration}
+                                                    onChange={(e) => setVideoSettings({ ...videoSettings, duration: Number(e.target.value) })}
+                                                    className="custom-range text-blue-500 flex-1"
+                                                />
+                                                <span className="text-xs font-mono text-white/50 bg-white/5 px-2 py-0.5 rounded min-w-[3.5rem] text-center">
+                                                    {videoSettings.duration} {t.seconds}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Steps */}
+                                        <div className="flex items-center justify-between gap-4">
+                                            <label className="flex items-center gap-2 text-sm font-medium text-white/80 min-w-[6rem]">
+                                                <Layers className="w-4 h-4 text-green-400" />
+                                                {t.videoSteps}
+                                            </label>
+                                            <div className="flex flex-1 items-center gap-3">
+                                                <input
+                                                    type="range"
+                                                    min="1"
+                                                    max="30"
+                                                    step="1"
+                                                    value={videoSettings.steps}
+                                                    onChange={(e) => setVideoSettings({ ...videoSettings, steps: Number(e.target.value) })}
+                                                    className="custom-range text-green-500 flex-1"
+                                                />
+                                                <span className="text-xs font-mono text-white/50 bg-white/5 px-2 py-0.5 rounded min-w-[2rem] text-center">
+                                                    {videoSettings.steps}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Guidance */}
+                                        <div className="flex items-center justify-between gap-4">
+                                            <label className="flex items-center gap-2 text-sm font-medium text-white/80 min-w-[6rem]">
+                                                <Sparkles className="w-4 h-4 text-yellow-400" />
+                                                {t.videoGuidance}
+                                            </label>
+                                            <div className="flex flex-1 items-center gap-3">
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="10"
+                                                    step="1"
+                                                    value={videoSettings.guidance}
+                                                    onChange={(e) => setVideoSettings({ ...videoSettings, guidance: Number(e.target.value) })}
+                                                    className="custom-range text-yellow-500 flex-1"
+                                                />
+                                                <span className="text-xs font-mono text-white/50 bg-white/5 px-2 py-0.5 rounded min-w-[2rem] text-center">
+                                                    {videoSettings.guidance}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
