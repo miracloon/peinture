@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { X, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Shield, Zap, Database, Globe, CloudUpload, Github, Languages, Wand2, Film } from 'lucide-react';
+import { X, ChevronDown, ChevronUp, HelpCircle, ExternalLink, Shield, Zap, Database, Globe, CloudUpload, Github, Languages, Wand2, Film, PencilRuler } from 'lucide-react';
 
 interface FAQModalProps {
     isOpen: boolean;
@@ -80,6 +80,11 @@ export const FAQModal: React.FC<FAQModalProps> = ({ isOpen, onClose, t }) => {
             icon: <Film className="w-5 h-5 text-red-400" />,
             question: t.faq_q8,
             answer: t.faq_a8
+        },
+        {
+            icon: <PencilRuler className="w-5 h-5 text-indigo-400" />,
+            question: t.faq_q9,
+            answer: t.faq_a9
         },
         {
             icon: <CloudUpload className="w-5 h-5 text-orange-400" />,

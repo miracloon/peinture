@@ -1,5 +1,4 @@
 
-
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
 import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel, getVideoSettings } from "./utils";
 
@@ -10,6 +9,7 @@ const FLUX_SCHNELL_BASE_API_URL = "https://black-forest-labs-flux-1-schnell.hf.s
 const UPSCALER_BASE_API_URL = "https://tuan2308-upscaler.hf.space";
 const POLLINATIONS_API_URL = "https://text.pollinations.ai/openai";
 const WAN2_VIDEO_API_URL = "https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space";
+const QWEN_IMAGE_EDIT_BASE_API_URL = "https://linoyts-qwen-image-edit-2509-fast.hf.space";
 
 // --- Token Management System ---
 
@@ -126,6 +126,35 @@ const runWithTokenRetry = async <T>(operation: (token: string | null) => Promise
   }
 
   throw lastError || new Error("error_api_connection");
+};
+
+// --- Gradio File Upload Helper ---
+
+export const uploadToGradio = async (baseUrl: string, blob: Blob, token: string | null): Promise<string> => {
+    const formData = new FormData();
+    formData.append('files', blob, 'image.png');
+    
+    const headers: Record<string, string> = {};
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${baseUrl}/gradio_api/upload`, {
+        method: 'POST',
+        headers,
+        body: formData
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to upload image to Gradio: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (!result || !result[0]) {
+        throw new Error('Invalid upload response from Gradio');
+    }
+
+    return result[0]; // Returns the filename/path relative to the Gradio space
 };
 
 // --- Service Logic ---
@@ -363,6 +392,75 @@ const generateOvisImage = async (
       };
     } catch (error) {
       console.error("Ovis Image Generation Error:", error);
+      throw error;
+    }
+  });
+};
+
+export const editImageQwen = async (
+  imageBlobs: Blob[],
+  prompt: string,
+  width: number,
+  height: number,
+  seed: number = Math.round(Math.random() * 2147483647),
+  steps: number = 4,
+  guidanceScale: number = 1
+): Promise<GeneratedImage> => {
+  return runWithTokenRetry(async (token) => {
+    try {
+      // 1. Upload all Blobs to Gradio first to get temporary paths
+      const imagePayloadPromises = imageBlobs.map(async (blob) => {
+          const path = await uploadToGradio(QWEN_IMAGE_EDIT_BASE_API_URL, blob, token);
+          return { image: { path, meta: { _type: "gradio.FileData" } } };
+      });
+      
+      const imagePayload = await Promise.all(imagePayloadPromises);
+
+      // 2. Call Inference
+      const queue = await fetch(QWEN_IMAGE_EDIT_BASE_API_URL + '/gradio_api/call/infer', {
+        method: "POST",
+        headers: getAuthHeaders(token),
+        body: JSON.stringify({
+          data: [
+            imagePayload,
+            prompt,
+            seed,
+            false, // Randomize seed
+            guidanceScale,
+            steps,
+            height,
+            width,
+            true // Rewrite prompt
+          ]
+        })
+      });
+      const { event_id } = await queue.json();
+      const response = await fetch(QWEN_IMAGE_EDIT_BASE_API_URL + '/gradio_api/call/infer/' + event_id, {
+        headers: {
+          "Accept": "text/event-stream",
+          ...getAuthHeaders(token)
+        },
+      });
+      const result = await response.text();
+      const data = extractCompleteEventData(result);
+
+      if (!data || !data[0] || !data[0][0]?.image?.url) {
+          throw new Error("error_invalid_response");
+      }
+
+      return {
+        id: generateUUID(),
+        url: data[0][0].image.url,
+        model: 'qwen-image-edit-fast',
+        prompt,
+        aspectRatio: 'custom',
+        timestamp: Date.now(),
+        seed,
+        steps,
+        provider: 'huggingface'
+      };
+    } catch (error) {
+      console.error("Qwen Image Edit Error:", error);
       throw error;
     }
   });

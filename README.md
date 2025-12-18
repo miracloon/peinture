@@ -20,11 +20,20 @@ A sleek, dark-themed AI image generator built with React, TypeScript, and Tailwi
 - **Prompt Optimization**: Integrated AI prompt enhancer that expands simple ideas into detailed, cinematic descriptions (powered by Pollinations.ai for Hugging Face, DeepSeek for Gitee AI and Model Scope).
 - **Advanced Controls**: Fine-tune your creations with adjustable **inference steps**, **seed control**, **guidance scale** (for Flux), and **HD Mode** (High Definition).
 - **Live Motion**: Transform static images into dynamic short videos using advanced Image-to-Video models (Wan2.2). Experience cinematic motion and bring your art to life (Supported on Hugging Face & Gitee AI).
+- **🎨 Image Editor**: Modify existing images with precision. Use Brush and Rectangle tools to guide AI edits, and upload up to 3 reference images for style or content guidance (Powered by Qwen-Image-Edit).
 - **History Gallery**: Automatically saves generated images locally. View, zoom, pan, and manage your creation history.
 - **4x Resolution**: AI upscaling technology to increase image resolution up to 4x (Only supported on Hugging Face).
 - **Multilingual**: Full support for English and Chinese (中文) interfaces.
 - **Token Management**: Configure personal API tokens for higher rate limits and stability.
 - **Privacy Focused**: History is stored in your browser's LocalStorage; no backend database is required for user data.
+
+## 🎨 Image Editor
+
+The Image Editor provides a powerful way to remix and refine your creations:
+- **Layer-Based Editing**: Draw directly on a transparent overlay using the **Brush** or **Rectangle** tools to indicate where the AI should perform modifications.
+- **Reference Support**: Upload up to 3 additional images to act as references for the AI, helping it match specific styles, characters, or environments.
+- **Natural Language Control**: Describe your intended changes in the AI command bar. The system intelligently combines your original image, manual edits, and reference images to generate a cohesive result.
+- **Universal Provider Support**: Works across all supported providers (Hugging Face, Gitee AI, and Model Scope) using the state-of-the-art Qwen-Image-Edit models.
 
 ## 🛠 Tech Stack
 
@@ -158,6 +167,9 @@ A: Image generation for Hugging Face is powered by Hugging Face, and prompt opti
 
 **Q: What is Live Motion?**
 A: The Live feature transforms static images into dynamic short videos. By leveraging advanced Image-to-Video models (such as Wan2.2), the AI analyzes the scene's composition to generate natural motion and cinematic effects, bringing your creation to life. Currently, only Hugging Face and Gitee AI are supported.
+
+**Q: How does the Image Editor work?**
+A: The Image Editor allows you to modify existing images using AI. You can draw on a transparent layer (using Brush or Rectangle tools) to indicate where you want changes, then provide an AI command. The system merges your drawings with the original image and sends them to the Qwen-Image-Edit model. You can also upload up to 3 reference images to guide the AI's artistic style or content.
 
 **Q: Can I host this myself?**
 A: Yes! This is an open-source project licensed under MIT. You can fork the repository from GitHub and deploy it to Vercel, Cloudflare Pages, or any static hosting service.

@@ -1,9 +1,14 @@
 
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
 import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel } from "./utils";
+import { uploadToGradio } from "./hfService";
 
 const MS_GENERATE_API_URL = "https://api-inference.modelscope.cn/v1/images/generations";
 const MS_CHAT_API_URL = "https://api-inference.modelscope.cn/v1/chat/completions";
+
+// Constants for image upload via HF Space
+const QWEN_EDIT_HF_BASE = "https://linoyts-qwen-image-edit-2509-fast.hf.space";
+const QWEN_EDIT_HF_FILE_PREFIX = "https://linoyts-qwen-image-edit-2509-fast.hf.space/gradio_api/file=";
 
 // --- Token Management System ---
 
@@ -216,6 +221,72 @@ export const generateMSImage = async (
 
     } catch (error) {
       console.error("Model Scope Image Generation Error:", error);
+      throw error;
+    }
+  });
+};
+
+export const editImageMS = async (
+  imageBlobs: Blob[],
+  prompt: string,
+  width?: number,
+  height?: number,
+  steps: number = 16,
+  guidanceScale: number = 4
+): Promise<GeneratedImage> => {
+  // 1. Upload images to Gradio space to get public URLs. 
+  // Per requirements: no token used for upload, anonymous access.
+  const uploadedFilenames = await Promise.all(imageBlobs.map(blob => 
+    uploadToGradio(QWEN_EDIT_HF_BASE, blob, null)
+  ));
+  const imageUrls = uploadedFilenames.map(name => `${QWEN_EDIT_HF_FILE_PREFIX}${name}`);
+
+  // 2. Perform generation on Model Scope
+  return runWithMsTokenRetry(async (token) => {
+    try {
+      const requestBody: any = {
+        prompt,
+        model: 'Qwen/Qwen-Image-Edit-2509',
+        image_url: imageUrls,
+        seed: Math.floor(Math.random() * 2147483647),
+        steps: steps, // Steps range 4-28, default 16
+        guidance: guidanceScale // Guidance range 1-10, default 4
+      };
+
+      const response = await fetch(MS_GENERATE_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || `Model Scope Image Edit Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const imageUrl = data.images?.[0]?.url;
+
+      if (!imageUrl) {
+        throw new Error("error_invalid_response");
+      }
+
+      return {
+        id: generateUUID(),
+        url: imageUrl,
+        model: 'Qwen/Qwen-Image-Edit-2509',
+        prompt,
+        aspectRatio: 'custom',
+        timestamp: Date.now(),
+        steps,
+        guidanceScale,
+        provider: 'modelscope'
+      };
+    } catch (error) {
+      console.error("Model Scope Image Edit Error:", error);
       throw error;
     }
   });

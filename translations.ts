@@ -1,10 +1,13 @@
 
-
 export type Language = 'en' | 'zh';
 
 export const translations = {
   en: {
     appTitle: "Peinture",
+    nav_creation: "Creation",
+    nav_editor: "Editor",
+    editor_coming_soon: "Image Editor Coming Soon",
+    editor_desc: "We are building powerful tools to edit and remix your images.",
     prompt: "Prompt",
     optimize: "Optimize",
     optimizing: "Optimizing...",
@@ -50,6 +53,7 @@ export const translations = {
     cancel: "Cancel",
     save: "Save",
     close: "Close",
+    confirm: "Confirm",
     language: "Language",
     hd: "HD",
     upscale: "Upscale",
@@ -128,6 +132,8 @@ export const translations = {
     faq_a7: "We use powerful LLMs to expand your short ideas into detailed, artistically rich prompts. Depending on the provider, we use models like DeepSeek or OpenAI. You can customize the 'Role Setting' in the Settings menu to control how the AI rewrites your prompts.",
     faq_q8: "How does Live Image work?",
     faq_a8: "The Live feature transforms static images into dynamic short videos. By leveraging advanced Image-to-Video models (such as Wan2.2), the AI analyzes the scene's composition to generate natural motion and cinematic effects, bringing your creation to life. Currently, only Hugging Face and Gitee AI are supported.",
+    faq_q9: "How does the Image Editor work?",
+    faq_a9: "The Image Editor allows you to modify existing images using AI. You can draw on a transparent layer (using Brush or Rectangle tools) to indicate where you want changes, then provide an AI command. The system merges your drawings with the original image and sends them to the Qwen-Image-Edit model. You can also upload up to 3 reference images to guide the AI's artistic style or content.",
     footer_license: "Released under the MIT License. Open source and free forever.",
 
     // Aspect Ratios
@@ -138,9 +144,56 @@ export const translations = {
     ar_landscape_4_3: "PC Desktop 4:3",
     ar_portrait_3_2: "DSLR Camera 3:2",
     ar_landscape_2_3: "DSLR Photography 2:3",
+    
+    // Image Editor
+    tool_select: "Select",
+    tool_move: "Move / Pan",
+    tool_brush: "Brush",
+    tool_eraser: "Eraser",
+    tool_rect: "Rectangle",
+    tool_undo: "Undo",
+    tool_color: "Color",
+    tool_exit: "Exit Editor",
+    upload_image_cta: "Upload Image to Edit",
+    editor_placeholder: "Describe edits...",
+    editor_generate: "Generate",
+    
+    // New Editor Strings
+    upload_ref_image: "Upload Reference Image",
+    ref_image_n: "Reference Image {n}",
+    prompt_original_image: "The first image is the original image.",
+    prompt_edit_layer: "The second image contains the user's editing operations; all modifications are performed on this layer.",
+    prompt_ref_image: "Reference Image {n} is the {i} image.",
+    menu_replace: "Replace Image",
+    menu_center: "Center View",
+    menu_download: "Download Image",
+    menu_exit: "Exit Editor",
+
+    // Shortcuts
+    shortcuts_title: "Keyboard Shortcuts",
+    sc_send: "Send",
+    sc_zoom_in: "Zoom In",
+    sc_zoom_out: "Zoom Out",
+    sc_reset_view: "Reset View",
+    sc_move: "Move / Pan",
+    sc_upload: "Upload Image",
+    sc_draw: "Draw",
+    sc_rect: "Rectangle",
+    sc_eraser: "Eraser",
+    sc_undo: "Undo",
+    sc_redo: "Redo",
+    sc_color: "Pick Color",
+    sc_exit: "Exit",
+    exit_dialog_title: "Exit Editor?",
+    exit_dialog_desc: "This will clear your current canvas and history. Are you sure?",
+    or_conjunction: " or ",
   },
   zh: {
-    appTitle: "派奇绘画",
+    appTitle: "派奇智图",
+    nav_creation: "创作",
+    nav_editor: "编辑",
+    editor_coming_soon: "图片编辑功能即将上线",
+    editor_desc: "我们正在打造强大的工具，帮助您编辑和重组图片。",
     prompt: "提示词",
     optimize: "优化",
     optimizing: "优化中...",
@@ -186,6 +239,7 @@ export const translations = {
     cancel: "取消",
     save: "保存",
     close: "关闭",
+    confirm: "确认",
     language: "语言",
     hd: "高清",
     upscale: "超清放大",
@@ -259,11 +313,13 @@ export const translations = {
     faq_q5: "我可以私有部署吗？",
     faq_a5: "可以！这是一个基于 MIT 协议的开源项目。您可以从 GitHub Fork 代码库，并将其自由部署到 Vercel、Cloudflare Pages 或任何静态托管平台。",
     faq_q6: "自动翻译是如何工作的？",
-    faq_a6: "某些高级模型（如 FLUX 系列）对英文提示词的理解能力最佳。当选择这些模型时，“自动翻译”功能会默认开启。我们会检测您的提示词是否为非英文，并使用快速 LLM 自动将其翻译为英文，以确保生成最高质量的图片。",
+    faq_a6: "某些高级模型（如 FLUX 系列）对英文提示词的理解能力最佳。当选择 these models 时，“自动翻译”功能会默认开启。我们会检测您的提示词是否为非英文，并使用快速 LLM 自动将其翻译为英文，以确保生成最高质量的图片。",
     faq_q7: "提示词优化是如何工作的？",
     faq_a7: "我们使用强大的 LLM 将您简短的想法扩展为详细、富有艺术感的提示词。根据服务商的不同，我们会调用 DeepSeek 或 OpenAI 等模型。您可以在“设置”菜单的“提示词”选项卡中自定义“角色设定”，以控制 AI 重写提示词的方式。",
     faq_q8: "Live 图生成原理是什么？",
     faq_a8: "Live 功能利用先进的图生视频模型（如 Wan2.2），将静态图片转化为动态短视频。AI 会分析画面构图，生成自然的运动轨迹和电影级特效，赋予您的作品生命力。目前仅 Hugging Face 与 Gitee AI 支持。",
+    faq_q9: "图片编辑功能是如何工作的？",
+    faq_a9: "图片编辑器允许您利用 AI 修改现有图片。您可以在透明图层上绘画（使用画笔或矩形工具）来标注想要修改的区域，然后输入 AI 指令。系统会将您的涂鸦与原图合并，并发送给 Qwen-Image-Edit 模型进行处理。您还可以上传最多 3 张参考图，以引导 AI 的艺术风格或内容生成。",
     footer_license: "基于 MIT 协议发布。永久开源免费。",
 
     // Aspect Ratios
@@ -274,5 +330,48 @@ export const translations = {
     ar_landscape_4_3: "电脑桌面 4:3",
     ar_portrait_3_2: "单反摄像 3:2",
     ar_landscape_2_3: "单反摄影 2:3",
+
+    // Image Editor
+    tool_select: "选择",
+    tool_move: "移动 / 拖拽",
+    tool_brush: "画笔",
+    tool_eraser: "橡皮擦",
+    tool_rect: "矩形框",
+    tool_undo: "撤销",
+    tool_color: "颜色",
+    tool_exit: "退出编辑",
+    upload_image_cta: "上传图片开始编辑",
+    editor_placeholder: "添加未来的城市天际线...",
+    editor_generate: "生成",
+
+    // New Editor Strings
+    upload_ref_image: "上传参考图片",
+    ref_image_n: "参考图片 {n}",
+    prompt_original_image: "第1张图片是原始图片。",
+    prompt_edit_layer: "第{n}张图片包含了用户的编辑操作信息，所有的修改都在此图层进行。",
+    prompt_ref_image: "参考图片{n}是第{i}图片。",
+    menu_replace: "替换图片",
+    menu_center: "居中显示",
+    menu_download: "下载图片",
+    menu_exit: "退出编辑",
+
+    // Shortcuts
+    shortcuts_title: "快捷键列表",
+    sc_send: "发送",
+    sc_zoom_in: "放大画布",
+    sc_zoom_out: "缩小画布",
+    sc_reset_view: "重置画布",
+    sc_move: "拖拽",
+    sc_upload: "上传图片",
+    sc_draw: "绘制",
+    sc_rect: "矩形",
+    sc_eraser: "橡皮擦",
+    sc_undo: "撤销",
+    sc_redo: "重做",
+    sc_color: "颜色",
+    sc_exit: "退出",
+    exit_dialog_title: "确认退出编辑?",
+    exit_dialog_desc: "退出将清空当前画布和历史记录。是否确认？",
+    or_conjunction: " 或 ",
   }
 };

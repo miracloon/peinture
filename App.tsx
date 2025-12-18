@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { generateImage, optimizePrompt, upscaler, createVideoTaskHF } from './services/hfService';
 import { generateGiteeImage, optimizePromptGitee, createVideoTask, getGiteeTaskStatus } from './services/giteeService';
@@ -9,22 +8,20 @@ import { GeneratedImage, AspectRatioOption, ModelOption, ProviderOption } from '
 import { HistoryGallery } from './components/HistoryGallery';
 import { SettingsModal } from './components/SettingsModal';
 import { FAQModal } from './components/FAQModal';
-import { Logo } from './components/Icons';
-import { Tooltip } from './components/Tooltip';
 import { translations, Language } from './translations';
+import { ImageEditor } from './components/ImageEditor';
+import { Header, AppView } from './components/Header';
 import {
   Sparkles,
   Loader2,
-  Settings,
   RotateCcw,
-  CircleHelp,
-  Github,
 } from 'lucide-react';
 import { getModelConfig, getGuidanceScaleConfig, FLUX_MODELS, HF_MODEL_OPTIONS, GITEE_MODEL_OPTIONS, MS_MODEL_OPTIONS } from './constants';
 import { PromptInput } from './components/PromptInput';
 import { ControlPanel } from './components/ControlPanel';
 import { PreviewStage } from './components/PreviewStage';
 import { ImageToolbar } from './components/ImageToolbar';
+import { Tooltip } from './components/Tooltip';
 
 export default function App() {
   // Language Initialization
@@ -36,6 +33,9 @@ export default function App() {
   });
   
   const t = translations[lang];
+
+  // Navigation State
+  const [currentView, setCurrentView] = useState<AppView>('creation');
 
   // Dynamic Aspect Ratio Options based on language
   const aspectRatioOptions = [
@@ -174,6 +174,28 @@ export default function App() {
   useEffect(() => {
       currentImageRef.current = currentImage;
   }, [currentImage]);
+
+  // Handle initialization/reset of model when switching to creation view
+  useEffect(() => {
+    if (currentView === 'creation') {
+        let options;
+        if (provider === 'gitee') options = GITEE_MODEL_OPTIONS;
+        else if (provider === 'modelscope') options = MS_MODEL_OPTIONS;
+        else options = HF_MODEL_OPTIONS;
+
+        const isValid = options.some(o => o.value === model);
+        if (!isValid) {
+            const defaultModel = options[0].value as ModelOption;
+            setModel(defaultModel);
+            
+            // Force parameter update for the new default model
+            const config = getModelConfig(provider, defaultModel);
+            setSteps(config.default);
+            const gsConfig = getGuidanceScaleConfig(defaultModel, provider);
+            if (gsConfig) setGuidanceScale(gsConfig.default);
+        }
+    }
+  }, [currentView, provider, model]);
 
   // Robust Polling for Video Tasks
   useEffect(() => {
@@ -667,7 +689,7 @@ export default function App() {
       }
 
       // 3. Mobile Strategy: Web Share API (Primary for iOS/Mobile)
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
       if (isMobile) {
           const file = new File([blob], fileName, { type: blob.type });
@@ -698,6 +720,7 @@ export default function App() {
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
+      if (isMobile) link.target = '_blank';
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
@@ -727,181 +750,162 @@ export default function App() {
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-gradient-brilliant">
       <div className="flex h-full grow flex-col">
-        {/* Header */}
-        <header className="w-full backdrop-blur-md sticky top-0 z-50 bg-background-dark/30 border-b border-white/5">
-          <div className="max-w-7xl mx-auto flex items-center justify-between px-4 py-3 md:px-8 md:py-4">
-            <div className="flex items-center gap-2 text-white">
-              <Logo className="size-10" />
-              <h1 className="text-white text-xl font-bold leading-tight tracking-[-0.015em]">{t.appTitle}</h1>
-            </div>
+        {/* Header Component */}
+        <Header 
+            currentView={currentView}
+            setCurrentView={setCurrentView}
+            onOpenSettings={() => setShowSettings(true)}
+            onOpenFAQ={() => setShowFAQ(true)}
+            t={t}
+        />
+
+        {/* Main Content Area */}
+        {currentView === 'creation' ? (
+            <main className="w-full max-w-7xl flex-1 flex flex-col-reverse md:items-stretch md:mx-auto md:flex-row gap-4 md:gap-6 px-4 md:px-8 pb-4 md:pb-8 pt-4 md:pt-6 animate-in fade-in duration-300">
             
-            <div className="flex gap-1">
-              <Tooltip content={t.sourceCode} position="bottom">
-                  <a
-                    href="https://github.com/Amery2010/peinture"
-                    className="flex items-center justify-center p-2 rounded-lg text-white/70 hover:text-purple-400 hover:bg-white/10 transition-all active:scale-95"
-                    target="_blank"
-                  >
-                    <Github className="w-5 h-5" />
-                  </a>
-              </Tooltip>
+                {/* Left Column: Controls */}
+                <aside className="w-full md:max-w-sm flex-shrink-0 flex flex-col gap-4 md:gap-6">
+                    <div className="flex-grow space-y-4 md:space-y-6">
+                    <div className="relative z-10 bg-black/20 p-4 md:p-6 rounded-xl backdrop-blur-xl border border-white/10 flex flex-col gap-4 md:gap-6 shadow-2xl shadow-black/20">
+                        
+                        {/* Prompt Input Component */}
+                        <PromptInput 
+                            prompt={prompt}
+                            setPrompt={setPrompt}
+                            isOptimizing={isOptimizing}
+                            onOptimize={handleOptimizePrompt}
+                            isTranslating={isTranslating}
+                            autoTranslate={autoTranslate}
+                            setAutoTranslate={setAutoTranslate}
+                            t={t}
+                            addToPromptHistory={addToPromptHistory}
+                        />
 
-              <Tooltip content={t.help} position="bottom">
-                  <button
-                    onClick={() => setShowFAQ(true)}
-                    className="flex items-center justify-center p-2 rounded-lg text-white/70 hover:text-green-400 hover:bg-white/10 transition-all active:scale-95"
-                  >
-                    <CircleHelp className="w-5 h-5" />
-                  </button>
-              </Tooltip>
-
-              <Tooltip content={t.settings} position="bottom">
-                  <button
-                    onClick={() => setShowSettings(true)}
-                    className="flex items-center justify-center p-2 rounded-lg text-white/70 hover:text-purple-400 hover:bg-white/10 transition-all active:scale-95"
-                  >
-                    <Settings className="w-5 h-5" />
-                  </button>
-              </Tooltip>
-            </div>
-          </div>
-        </header>
-
-        <main className="w-full max-w-7xl flex-1 flex flex-col-reverse md:items-stretch md:mx-auto md:flex-row gap-4 md:gap-6 px-4 md:px-8 pb-4 md:pb-8 pt-4 md:pt-6">
-          
-          {/* Left Column: Controls */}
-          <aside className="w-full md:max-w-sm flex-shrink-0 flex flex-col gap-4 md:gap-6">
-            <div className="flex-grow space-y-4 md:space-y-6">
-              <div className="relative z-10 bg-black/20 p-4 md:p-6 rounded-xl backdrop-blur-xl border border-white/10 flex flex-col gap-4 md:gap-6 shadow-2xl shadow-black/20">
-                
-                {/* Prompt Input Component */}
-                <PromptInput 
-                    prompt={prompt}
-                    setPrompt={setPrompt}
-                    isOptimizing={isOptimizing}
-                    onOptimize={handleOptimizePrompt}
-                    isTranslating={isTranslating}
-                    autoTranslate={autoTranslate}
-                    setAutoTranslate={setAutoTranslate}
-                    t={t}
-                    addToPromptHistory={addToPromptHistory}
-                />
-
-                {/* Control Panel Component */}
-                <ControlPanel 
-                    provider={provider}
-                    setProvider={setProvider}
-                    model={model}
-                    setModel={setModel}
-                    aspectRatio={aspectRatio}
-                    setAspectRatio={setAspectRatio}
-                    steps={steps}
-                    setSteps={setSteps}
-                    guidanceScale={guidanceScale}
-                    setGuidanceScale={setGuidanceScale}
-                    seed={seed}
-                    setSeed={setSeed}
-                    enableHD={enableHD}
-                    setEnableHD={setEnableHD}
-                    t={t}
-                    aspectRatioOptions={aspectRatioOptions}
-                />
-              </div>
-
-              {/* Generate Button & Reset Button */}
-              <div className="flex items-center gap-3">
-                <button 
-                    onClick={handleGenerate}
-                    disabled={isWorking || !prompt.trim() || isTranslating}
-                    className="group relative flex-1 flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-xl h-12 px-4 text-white text-lg font-bold leading-normal tracking-[0.015em] transition-all shadow-lg shadow-purple-900/40 generate-button-gradient hover:shadow-purple-700/50 disabled:opacity-70 disabled:cursor-not-allowed disabled:grayscale"
-                >
-                    {isLoading || isTranslating ? (
-                    <div className="flex items-center gap-2">
-                        <Loader2 className="animate-spin w-5 h-5" />
-                        <span>{isTranslating ? t.translating : t.dreaming}</span>
+                        {/* Control Panel Component */}
+                        <ControlPanel 
+                            provider={provider}
+                            setProvider={setProvider}
+                            model={model}
+                            setModel={setModel}
+                            aspectRatio={aspectRatio}
+                            setAspectRatio={setAspectRatio}
+                            steps={steps}
+                            setSteps={setSteps}
+                            guidanceScale={guidanceScale}
+                            setGuidanceScale={setGuidanceScale}
+                            seed={seed}
+                            setSeed={setSeed}
+                            enableHD={enableHD}
+                            setEnableHD={setEnableHD}
+                            t={t}
+                            aspectRatioOptions={aspectRatioOptions}
+                        />
                     </div>
-                    ) : (
-                    <span className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 group-hover:animate-pulse" />
-                        <span className="truncate">{t.generate}</span>
-                    </span>
-                    )}
-                </button>
 
-                {currentImage && (
-                    <Tooltip content={t.reset}>
+                    {/* Generate Button & Reset Button */}
+                    <div className="flex items-center gap-3">
                         <button 
-                            onClick={handleReset}
-                            className="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all shadow-lg active:scale-95"
+                            onClick={handleGenerate}
+                            disabled={isWorking || !prompt.trim() || isTranslating}
+                            className="group relative flex-1 flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-xl h-12 px-4 text-white text-lg font-bold leading-normal tracking-[0.015em] transition-all shadow-lg shadow-purple-900/40 generate-button-gradient hover:shadow-purple-700/50 disabled:opacity-70 disabled:cursor-not-allowed disabled:grayscale"
                         >
-                            <RotateCcw className="w-5 h-5" />
+                            {isLoading || isTranslating ? (
+                            <div className="flex items-center gap-2">
+                                <Loader2 className="animate-spin w-5 h-5" />
+                                <span>{isTranslating ? t.translating : t.dreaming}</span>
+                            </div>
+                            ) : (
+                            <span className="flex items-center gap-2">
+                                <Sparkles className="w-5 h-5 group-hover:animate-pulse" />
+                                <span className="truncate">{t.generate}</span>
+                            </span>
+                            )}
                         </button>
-                    </Tooltip>
-                )}
-              </div>
 
-            </div>
-          </aside>
+                        {currentImage && (
+                            <Tooltip content={t.reset}>
+                                <button 
+                                    onClick={handleReset}
+                                    className="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all shadow-lg active:scale-95"
+                                >
+                                    <RotateCcw className="w-5 h-5" />
+                                </button>
+                            </Tooltip>
+                        )}
+                    </div>
 
-          {/* Right Column: Preview & Gallery */}
-          <div className="flex-1 flex flex-col flex-grow overflow-x-hidden">
-            
-            {/* Main Preview Area */}
-            <div className="relative group w-full">
-                <PreviewStage 
-                    currentImage={currentImage}
-                    isWorking={isWorking}
-                    isTranslating={isTranslating}
-                    elapsedTime={elapsedTime}
-                    error={error}
-                    onCloseError={() => setError(null)}
-                    isComparing={isComparing}
-                    tempUpscaledImage={tempUpscaledImage}
-                    showInfo={showInfo}
-                    setShowInfo={setShowInfo}
-                    imageDimensions={imageDimensions}
-                    setImageDimensions={setImageDimensions}
-                    t={t}
-                    copiedPrompt={copiedPrompt}
-                    handleCopyPrompt={handleCopyPrompt}
-                    isLiveMode={isLiveMode}
-                    onToggleLiveMode={() => setIsLiveMode(!isLiveMode)}
-                >
-                   {/* No children passed as toolbar is moved out */}
-                </PreviewStage>
+                    </div>
+                </aside>
 
-                {!shouldHideToolbar && (
-                    <ImageToolbar 
-                        currentImage={currentImage}
-                        isComparing={isComparing}
-                        showInfo={showInfo}
-                        setShowInfo={setShowInfo}
-                        isUpscaling={isUpscaling}
-                        isDownloading={isDownloading}
-                        handleUpscale={handleUpscale}
-                        handleToggleBlur={handleToggleBlur}
-                        handleDownload={() => currentImage && handleDownload(currentImage.url, `generated-${currentImage.id}`)}
-                        handleDelete={handleDelete}
-                        handleCancelUpscale={handleCancelUpscale}
-                        handleApplyUpscale={handleApplyUpscale}
-                        t={t}
-                        isLiveMode={isLiveMode}
-                        onLiveClick={handleLiveClick}
-                        isLiveGenerating={isLiveGenerating}
-                        provider={provider}
+                {/* Right Column: Preview & Gallery */}
+                <div className="flex-1 flex flex-col flex-grow overflow-x-hidden">
+                    
+                    {/* Main Preview Area */}
+                    <div className="relative group w-full">
+                        <PreviewStage 
+                            currentImage={currentImage}
+                            isWorking={isWorking}
+                            isTranslating={isTranslating}
+                            elapsedTime={elapsedTime}
+                            error={error}
+                            onCloseError={() => setError(null)}
+                            isComparing={isComparing}
+                            tempUpscaledImage={tempUpscaledImage}
+                            showInfo={showInfo}
+                            setShowInfo={setShowInfo}
+                            imageDimensions={imageDimensions}
+                            setImageDimensions={setImageDimensions}
+                            t={t}
+                            copiedPrompt={copiedPrompt}
+                            handleCopyPrompt={handleCopyPrompt}
+                            isLiveMode={isLiveMode}
+                            onToggleLiveMode={() => setIsLiveMode(!isLiveMode)}
+                        >
+                        {/* No children passed as toolbar is moved out */}
+                        </PreviewStage>
+
+                        {!shouldHideToolbar && (
+                            <ImageToolbar 
+                                currentImage={currentImage}
+                                isComparing={isComparing}
+                                showInfo={showInfo}
+                                setShowInfo={setShowInfo}
+                                isUpscaling={isUpscaling}
+                                isDownloading={isDownloading}
+                                handleUpscale={handleUpscale}
+                                handleToggleBlur={handleToggleBlur}
+                                handleDownload={() => currentImage && handleDownload(currentImage.url, `generated-${currentImage.id}`)}
+                                handleDelete={handleDelete}
+                                handleCancelUpscale={handleCancelUpscale}
+                                handleApplyUpscale={handleApplyUpscale}
+                                t={t}
+                                isLiveMode={isLiveMode}
+                                onLiveClick={handleLiveClick}
+                                isLiveGenerating={isLiveGenerating}
+                                provider={provider}
+                            />
+                        )}
+                    </div>
+
+                    {/* Gallery Strip */}
+                    <HistoryGallery 
+                        images={history} 
+                        onSelect={handleHistorySelect} 
+                        selectedId={currentImage?.id}
                     />
-                )}
-            </div>
 
-            {/* Gallery Strip */}
-            <HistoryGallery 
-                images={history} 
-                onSelect={handleHistorySelect} 
-                selectedId={currentImage?.id}
-            />
-
-          </div>
-        </main>
+                </div>
+            </main>
+        ) : (
+            <main className="w-full flex-1 flex flex-col items-center justify-center md:p-4">
+                <ImageEditor 
+                  t={t} 
+                  provider={provider} 
+                  setProvider={setProvider} 
+                  onOpenSettings={() => setShowSettings(true)} 
+                />
+            </main>
+        )}
         
         {/* Settings Modal */}
         <SettingsModal 

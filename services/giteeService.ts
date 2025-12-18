@@ -1,9 +1,9 @@
 
-
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
 import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel, getVideoSettings } from "./utils";
 
 const GITEE_GENERATE_API_URL = "https://ai.gitee.com/v1/images/generations";
+const GITEE_EDIT_API_URL = "https://ai.gitee.com/v1/images/edits";
 const GITEE_CHAT_API_URL = "https://ai.gitee.com/v1/chat/completions";
 const GITEE_VIDEO_TASK_API_URL = "https://ai.gitee.com/v1/async/videos/image-to-video";
 const GITEE_TASK_STATUS_API_URL = "https://ai.gitee.com/api/v1/task";
@@ -218,6 +218,72 @@ export const generateGiteeImage = async (
       };
     } catch (error) {
       console.error("Gitee AI Image Generation Error:", error);
+      throw error;
+    }
+  });
+};
+
+export const editImageGitee = async (
+  imageBlobs: Blob[],
+  prompt: string,
+  width?: number,
+  height?: number,
+  steps: number = 16,
+  guidanceScale: number = 4
+): Promise<GeneratedImage> => {
+  return runWithGiteeTokenRetry(async (token) => {
+    try {
+      const formData = new FormData();
+      formData.append('prompt', prompt);
+      
+      imageBlobs.forEach((blob) => {
+        formData.append('image', blob);
+      });
+
+      formData.append('model', 'Qwen-Image-Edit');
+      // formData.append('width', width.toString());
+      // formData.append('height', height.toString());
+      formData.append('num_inference_steps', steps.toString());
+      formData.append('cfg_scale', guidanceScale.toString());
+      formData.append('seed', Math.floor(Math.random() * 2147483647).toString());
+      formData.append('response_format', 'url');
+      formData.append('lora_weights', JSON.stringify({
+        url: "https://gitee.com/realhugh/materials/raw/master/Qwen-Image-Edit-Lightning-8steps-V1.0.safetensors",
+        weight: 1
+      }));
+
+      const response = await fetch(GITEE_EDIT_API_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || `Gitee AI Image Edit Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.data || !data.data[0] || !data.data[0].url) {
+        throw new Error("error_invalid_response");
+      }
+
+      return {
+        id: generateUUID(),
+        url: data.data[0].url,
+        model: 'Qwen-Image-Edit',
+        prompt,
+        aspectRatio: 'custom',
+        timestamp: Date.now(),
+        steps,
+        guidanceScale,
+        provider: 'gitee'
+      };
+    } catch (error) {
+      console.error("Gitee AI Image Edit Error:", error);
       throw error;
     }
   });
