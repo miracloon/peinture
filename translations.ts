@@ -157,6 +157,7 @@ export const translations = {
     upload_image_cta: "Upload Image to Edit",
     editor_placeholder: "Describe edits...",
     editor_generate: "Generate",
+    re_edit: "Re-edit",
     
     // New Editor Strings
     upload_ref_image: "Upload Reference Image",
@@ -168,6 +169,10 @@ export const translations = {
     menu_center: "Center View",
     menu_download: "Download Image",
     menu_exit: "Exit Editor",
+    
+    select_from_history: "Select from History",
+    history_modal_title: "Select Generated Image",
+    no_history_images: "No generated images found in history.",
 
     // Shortcuts
     shortcuts_title: "Keyboard Shortcuts",
@@ -343,6 +348,7 @@ export const translations = {
     upload_image_cta: "上传图片开始编辑",
     editor_placeholder: "添加未来的城市天际线...",
     editor_generate: "生成",
+    re_edit: "重新编辑",
 
     // New Editor Strings
     upload_ref_image: "上传参考图片",
@@ -354,6 +360,10 @@ export const translations = {
     menu_center: "居中显示",
     menu_download: "下载图片",
     menu_exit: "退出编辑",
+
+    select_from_history: "从创作历史选择",
+    history_modal_title: "选择已生成图片",
+    no_history_images: "历史记录中暂无已生成的图片。",
 
     // Shortcuts
     shortcuts_title: "快捷键列表",

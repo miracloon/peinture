@@ -20,25 +20,31 @@ import {
     AlignCenter,
     Download,
     Server,
-    ChevronDown
+    ChevronDown,
+    RotateCcw,
+    Check,
+    Clock,
+    History
 } from 'lucide-react';
 import { Tooltip } from './Tooltip';
 import { editImageQwen } from '../services/hfService';
 import { editImageGitee } from '../services/giteeService';
 import { editImageMS } from '../services/msService';
-import { ProviderOption } from '../types';
+import { ProviderOption, GeneratedImage } from '../types';
 import { PROVIDER_OPTIONS } from '../constants';
+import { ImageComparison } from './ImageComparison';
 
 interface ImageEditorProps {
     t: any;
     provider: ProviderOption;
     setProvider: (p: ProviderOption) => void;
     onOpenSettings: () => void;
+    history: GeneratedImage[];
 }
 
 type ToolType = 'select' | 'move' | 'brush' | 'eraser' | 'rect';
 
-export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvider, onOpenSettings }) => {
+export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvider, onOpenSettings, history }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const snapshotRef = useRef<ImageData | null>(null);
@@ -46,15 +52,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     
     // Core State
     const [image, setImage] = useState<HTMLImageElement | null>(null);
-    const [history, setHistory] = useState<ImageData[]>([]);
+    const [historyStates, setHistoryStates] = useState<ImageData[]>([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
 
     // UI State
     const [isDragOver, setIsDragOver] = useState(false);
     const [showExitDialog, setShowExitDialog] = useState(false);
     const [showShortcuts, setShowShortcuts] = useState(false);
+    const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
     const [showProviderMenu, setShowProviderMenu] = useState(false);
+    const [generatedResult, setGeneratedResult] = useState<string | null>(null);
 
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number } | null>(null);
@@ -79,12 +87,26 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const MOD_KEY = isMac ? 'Cmd' : 'Alt'; 
 
+    // Helper to proxy URLs to bypass CORS restrictions
+    const getProxyUrl = (url: string) => {
+        if (!url) return '';
+        // Check if it's a data URL or blob URL (local), return as is
+        if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+        
+        // Remove protocol
+        const cleanUrl = url.replace(/^https?:\/\//, '');
+        return `https://i0.wp.com/${cleanUrl}`;
+    };
+
+    // Filter history to exclude Model Scope images as they typically have CORS issues even with proxy
+    const compatibleHistory = history.filter(img => img.provider !== 'modelscope');
+
     // --- History Management ---
     
     const saveToHistory = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
         const imageData = ctx.getImageData(0, 0, width, height);
         // If we are in the middle of history, discard future states
-        const newHistory = history.slice(0, historyIndex + 1);
+        const newHistory = historyStates.slice(0, historyIndex + 1);
         newHistory.push(imageData);
         
         // Limit history size to 20
@@ -93,7 +115,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         } else {
             setHistoryIndex(newHistory.length - 1);
         }
-        setHistory(newHistory);
+        setHistoryStates(newHistory);
     };
 
     const handleUndo = useCallback(() => {
@@ -102,21 +124,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             setHistoryIndex(newIndex);
             const ctx = canvasRef.current.getContext('2d');
             if (ctx) {
-                ctx.putImageData(history[newIndex], 0, 0);
+                ctx.putImageData(historyStates[newIndex], 0, 0);
             }
         }
-    }, [history, historyIndex]);
+    }, [historyStates, historyIndex]);
 
     const handleRedo = useCallback(() => {
-        if (historyIndex < history.length - 1 && canvasRef.current) {
+        if (historyIndex < historyStates.length - 1 && canvasRef.current) {
             const newIndex = historyIndex + 1;
             setHistoryIndex(newIndex);
             const ctx = canvasRef.current.getContext('2d');
             if (ctx) {
-                ctx.putImageData(history[newIndex], 0, 0);
+                ctx.putImageData(historyStates[newIndex], 0, 0);
             }
         }
-    }, [history, historyIndex]);
+    }, [historyStates, historyIndex]);
 
     // --- Image Loading Logic ---
 
@@ -131,6 +153,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 img.crossOrigin = 'anonymous';
                 img.onload = () => {
                     setImage(img);
+                    setGeneratedResult(null);
                     
                     if (canvasRef.current && containerRef.current) {
                          canvasRef.current.width = img.width;
@@ -143,7 +166,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                              
                              // Initialize history with empty/transparent state
                              const initialData = ctx.getImageData(0, 0, img.width, img.height);
-                             setHistory([initialData]); 
+                             setHistoryStates([initialData]); 
                              setHistoryIndex(0);
                          }
 
@@ -153,13 +176,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                          const scaleH = contH / img.height;
                          const scaleW = contW / img.width;
                          
-                         // Fit to container (Contain)
-                         const newScale = Math.min(scaleH, scaleW);
+                         // Fit to container (Contain), but DO NOT upscale if image is smaller than container
+                         const newScale = Math.min(scaleH, scaleW, 1);
                          
                          setScale(newScale);
 
                          // Center Image using the new scale
-                         // Formula: (ContainerDim - ImageDim * Scale) / 2
                          setOffset({
                              x: (contW - img.width * newScale) / 2,
                              y: (contH - img.height * newScale) / 2
@@ -180,15 +202,75 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         }
     };
 
+    const handleHistorySelect = (historyItem: GeneratedImage) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            setImage(img);
+            // Reset previous generation state
+            setGeneratedResult(null);
+            setCommand('');
+            setAttachedImages([]);
+            
+            if (canvasRef.current && containerRef.current) {
+                 canvasRef.current.width = img.width;
+                 canvasRef.current.height = img.height;
+                 
+                 const ctx = canvasRef.current.getContext('2d');
+                 if (ctx) {
+                     // Clear canvas (drawing layer)
+                     ctx.clearRect(0, 0, img.width, img.height);
+                     
+                     // Initialize history with empty/transparent state
+                     try {
+                        const initialData = ctx.getImageData(0, 0, img.width, img.height);
+                        setHistoryStates([initialData]); 
+                        setHistoryIndex(0);
+                     } catch (e) {
+                        console.error("Failed to read image data (CORS restriction):", e);
+                        // Reset history if we can't read it
+                        setHistoryStates([]);
+                        setHistoryIndex(-1);
+                     }
+                 }
+
+                 // Calculate Scale to Fit
+                 const { width: contW, height: contH } = containerRef.current.getBoundingClientRect();
+                 
+                 const scaleH = contH / img.height;
+                 const scaleW = contW / img.width;
+                 
+                 // Fit to container (Contain), but DO NOT upscale if image is smaller than container
+                 const newScale = Math.min(scaleH, scaleW, 1);
+                 
+                 setScale(newScale);
+
+                 // Center Image using the new scale
+                 setOffset({
+                     x: (contW - img.width * newScale) / 2,
+                     y: (contH - img.height * newScale) / 2
+                 });
+            }
+            setShowHistoryModal(false);
+        };
+        img.onerror = () => {
+            console.error("Failed to load history image via proxy:", historyItem.url);
+            // Fallback to direct load might be an option, but sticking to proxy as primary means to fix CORS
+        };
+        // Use Proxy URL
+        img.src = getProxyUrl(historyItem.url);
+    };
+
     const handleExit = () => {
         setImage(null);
-        setHistory([]);
+        setHistoryStates([]);
         setHistoryIndex(-1);
         setCommand('');
         setAttachedImages([]);
         setScale(1);
         setOffset({ x: 0, y: 0 });
         setShowExitDialog(false);
+        setGeneratedResult(null);
     };
 
     // --- Zoom Helpers ---
@@ -209,7 +291,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
              const { width: contW, height: contH } = containerRef.current.getBoundingClientRect();
              const scaleH = contH / image.height;
              const scaleW = contW / image.width;
-             const newScale = Math.min(scaleH, scaleW);
+             // Ensure we don't upscale on reset either
+             const newScale = Math.min(scaleH, scaleW, 1);
              setScale(newScale);
              setOffset({
                  x: (contW - image.width * newScale) / 2,
@@ -249,8 +332,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             }
 
             if (e.key === 'Escape') {
-                if (contextMenu) setContextMenu(null);
+                if (generatedResult) setGeneratedResult(null);
+                else if (contextMenu) setContextMenu(null);
                 else if (showShortcuts) setShowShortcuts(false);
+                else if (showHistoryModal) setShowHistoryModal(false);
                 else if (showExitDialog) setShowExitDialog(false);
                 else if (image) setShowExitDialog(true);
                 return;
@@ -338,7 +423,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isMac, zoomIn, zoomOut, zoomReset, handleUndo, handleRedo, image, showExitDialog, showShortcuts, contextMenu]);
+    }, [isMac, zoomIn, zoomOut, zoomReset, handleUndo, handleRedo, image, showExitDialog, showShortcuts, showHistoryModal, contextMenu, generatedResult]);
 
     // Drag & Drop Handlers
     const handleDragOver = (e: React.DragEvent) => {
@@ -425,7 +510,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 ctx.moveTo(coords.x, coords.y);
             } else if (activeTool === 'eraser') {
                 ctx.globalCompositeOperation = 'destination-out';
-                ctx.lineWidth = getDynamicLineWidth(4); 
+                ctx.lineWidth = getDynamicLineWidth(16); // Increased eraser size (4x)
                 ctx.beginPath();
                 ctx.moveTo(coords.x, coords.y);
             } else if (activeTool === 'rect') {
@@ -519,7 +604,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     // --- Utility: Convert to Blob ---
     
     const urlToBlob = async (url: string): Promise<Blob> => {
-        const response = await fetch(url);
+        // Use proxy for internal operations too if it's a remote URL
+        const fetchUrl = getProxyUrl(url);
+        const response = await fetch(fetchUrl);
         return await response.blob();
     };
 
@@ -611,6 +698,93 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         return canvas;
     }
 
+    const handleDownloadResult = async (url: string) => {
+        let fileName = `edited_image_${Date.now()}`;
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        try {
+            const fetchUrl = getProxyUrl(url); // Use proxy for download too to avoid CORS on fetch
+            const response = await fetch(fetchUrl, { mode: 'cors' });
+            if (!response.ok) throw new Error('Network response was not ok');
+            let blob = await response.blob();
+
+            if (blob.type.startsWith('image') && (blob.type === 'image/webp' || url.includes('.webp'))) {
+            try {
+                // Create a temp image to draw to canvas
+                    const img = new Image();
+                    img.crossOrigin = "Anonymous";
+                    const blobUrl = URL.createObjectURL(blob);
+                    
+                    await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = reject;
+                        img.src = blobUrl;
+                    });
+                    
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        ctx.drawImage(img, 0, 0);
+                        const pngBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+                        if (pngBlob) {
+                            blob = pngBlob;
+                            fileName = fileName.replace(/\.webp$/i, '.png');
+                            if (!fileName.endsWith('.png')) fileName += '.png';
+                        }
+                    }
+                    URL.revokeObjectURL(blobUrl);
+                } catch (e) {
+                    console.warn("Conversion failed, using original blob", e);
+                }
+            }
+
+            // Ensure extension matches blob type if missing
+            if (!fileName.includes('.')) {
+                const type = blob.type.split('/')[1] || 'png';
+                fileName = `${fileName}.${type}`;
+            }
+
+            // Mobile Share
+            if (isMobile) {
+                const file = new File([blob], fileName, { type: blob.type });
+                const nav = navigator as any;
+                if (nav.canShare && nav.canShare({ files: [file] })) {
+                    try {
+                        await nav.share({ files: [file], title: 'Peinture AI Asset' });
+                        return;
+                    } catch (e: any) {
+                        if (e.name === 'AbortError') return;
+                    }
+                }
+            }
+
+            // Desktop/Fallback Download (Blob URL via A tag)
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+
+        } catch (e) {
+            console.error("Download failed, falling back to window.open", e);
+            try {
+                const link = document.createElement('a');
+                link.href = url; // Use original URL for direct open if fetch fails
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (err) {
+                window.open(url, '_blank');
+            }
+        }
+    };
+
     const handleGenerate = async () => {
         if (!image || !command.trim()) return;
         setIsGenerating(true);
@@ -658,61 +832,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 result = await editImageQwen(imageBlobs, finalPrompt, normalizedWidth, normalizedHeight);
             }
 
-            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-            if (provider === 'modelscope') {
-                const link = document.createElement('a');
-                link.href = result.url;
-                if (isMobile) link.target = '_blank';
-                link.download = `edited_image_${Date.now()}.png`;
-                link.click();
-            } else {
-                const response = await fetch(result.url)
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch generated image from ${result.url}: ${response.statusText}`);
-                }
-                const blob = await response.blob()
-                const fileName = `edited_image_${Date.now()}.png`
-
-                if (isMobile) {
-                    const file = new File([blob], fileName, { type: blob.type });
-                    
-                    const nav = navigator as any;
-                    const canShare = nav.canShare && nav.canShare({ files: [file] });
-
-                    if (canShare) {
-                        try {
-                            await nav.share({
-                                files: [file],
-                                title: 'Peinture AI Asset',
-                            });
-                            return; // Success, shared
-                        } catch (e: any) {
-                            if (e.name !== 'AbortError') console.warn("Share failed", e);
-                            if (e.name === 'AbortError') {
-                                return; // User cancelled
-                            }
-                            // If share failed (not cancelled), fall through to anchor method
-                        }
-                    }
-                }
-
-                // 4. Desktop/Fallback Strategy: Anchor Download
-                const blobUrl = window.URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = blobUrl;
-                if (isMobile) link.target = '_blank';
-                link.download = fileName;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                // Cleanup
-                setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
-            }
-            
-            // handleExit();
+            setGeneratedResult(result.url);
             setIsGenerating(false);
+
         } catch (e: any) {
             console.error(e);
             setIsGenerating(false);
@@ -731,10 +853,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         const merged = getMergedLayer();
         if (merged) {
             const dataUrl = merged.toDataURL('image/png');
-            const link = document.createElement('a');
-            link.href = dataUrl;
-            link.download = `peinture-edit-${Date.now()}.png`;
-            link.click();
+            handleDownloadResult(dataUrl);
         }
         setContextMenu(null);
     };
@@ -774,35 +893,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             >
                 {/* Upload CTA - Only visible when no image */}
                 {!image && (
-                    <div 
-                        className="absolute z-40 inset-0 flex flex-col items-center justify-center p-6 md:p-12"
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                    >
+                    <div  className="absolute z-40 inset-0 flex flex-col items-center justify-center p-6 md:p-12">
                         <div className="w-full max-w-lg space-y-4">
-                            <label className={`cursor-pointer group flex flex-col items-center justify-center w-full h-64 border-2 border-dashed rounded-xl transition-all duration-300 animate-in zoom-in-95 ${
-                                isDragOver 
-                                ? 'border-purple-500 bg-purple-500/10 scale-105' 
-                                : 'border-white/20 bg-white/[0.02] hover:bg-white/[0.05] hover:border-purple-500/50'
-                            }`}>
-                                <input 
-                                    ref={fileInputRef}
-                                    type="file" 
-                                    accept="image/*" 
-                                    className="hidden" 
-                                    onChange={handleImageUpload}
-                                />
-                                <div className="mb-6 p-5 rounded-full bg-white/5 group-hover:bg-purple-500/20 group-hover:scale-110 transition-all duration-300 shadow-lg">
-                                    <Upload className={`w-10 h-10 transition-colors ${isDragOver ? 'text-purple-400' : 'text-white/40 group-hover:text-purple-400'}`} />
-                                </div>
-                                <p className="text-white/60 font-medium text-lg group-hover:text-white/90 transition-colors">{t.upload_image_cta}</p>
-                                <div className="mt-2 flex items-center gap-2 text-white/30 text-sm font-mono">
-                                    <span>JPG, PNG, WebP</span>
-                                    <span className="w-1 h-1 rounded-full bg-white/20"></span>
-                                </div>
-                            </label>
-
                             {/* Provider Switcher Dropdown in Upload Area */}
                             <div className="relative">
                                 <button 
@@ -836,6 +928,42 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                                     </>
                                 )}
                             </div>
+
+                            <label
+                                className={`cursor-pointer group flex flex-col items-center justify-center w-full h-64 border-2 border-dashed rounded-xl transition-all duration-300 animate-in zoom-in-95 ${
+                                    isDragOver 
+                                    ? 'border-purple-500 bg-purple-500/10 scale-105' 
+                                    : 'border-white/20 bg-white/[0.02] hover:bg-white/[0.05] hover:border-purple-500/50'
+                                }`}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                            >
+                                <input 
+                                    ref={fileInputRef}
+                                    type="file" 
+                                    accept=".jpg,.jpeg,.png,.webp" 
+                                    className="hidden" 
+                                    onChange={handleImageUpload}
+                                />
+                                <div className="mb-6 p-5 rounded-full bg-white/5 group-hover:bg-purple-500/20 group-hover:scale-110 transition-all duration-300 shadow-lg">
+                                    <Upload className={`w-10 h-10 transition-colors ${isDragOver ? 'text-purple-400' : 'text-white/40 group-hover:text-purple-400'}`} />
+                                </div>
+                                <p className="text-white/60 font-medium text-lg group-hover:text-white/90 transition-colors">{t.upload_image_cta}</p>
+                                <div className="mt-2 flex items-center gap-2 text-white/30 text-sm font-mono">
+                                    <span>JPG, PNG, WebP</span>
+                                    <span className="w-1 h-1 rounded-full bg-white/20"></span>
+                                </div>
+                            </label>
+
+                            {/* Select from History Button */}
+                            <button
+                                onClick={() => setShowHistoryModal(true)}
+                                className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/15 text-white/80 hover:text-white border border-white/10 rounded-xl transition-all shadow-lg active:scale-95"
+                            >
+                                <History className="w-4 h-4" />
+                                <span className="font-medium text-sm">{t.select_from_history}</span>
+                            </button>
                         </div>
                     </div>
                 )}
@@ -872,6 +1000,40 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                         className={`relative z-10 ${activeTool === 'move' ? 'cursor-grab active:cursor-grabbing' : (activeTool === 'select' ? 'cursor-default' : 'cursor-crosshair')}`}
                     />
                 </div>
+                
+                {/* Result Comparison Overlay */}
+                {generatedResult && image && (
+                    <div className="absolute inset-0 z-50 bg-[#0D0B14] animate-in fade-in duration-300">
+                        {/* Comparison Area - Full Height */}
+                        <div className="relative w-full h-full overflow-hidden">
+                             <ImageComparison 
+                                beforeImage={image.src} 
+                                afterImage={generatedResult} 
+                                alt="Comparison" 
+                             />
+                             
+                             {/* Floating Toolbar Overlay */}
+                             <div className="absolute bottom-6 inset-x-0 flex justify-center pointer-events-none z-40">
+                                <div className="pointer-events-auto flex items-center gap-3 animate-in slide-in-from-bottom-4 duration-300">
+                                    <button
+                                        onClick={() => setGeneratedResult(null)}
+                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white/80 hover:bg-black/80 hover:text-white transition-all shadow-xl hover:shadow-red-900/10 hover:border-red-500/30"
+                                    >
+                                        <RotateCcw className="w-5 h-5 text-red-400" />
+                                        <span className="font-medium text-sm">{t.re_edit}</span>
+                                    </button>
+                                    <button
+                                        onClick={() => handleDownloadResult(generatedResult)}
+                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white/80 hover:bg-black/80 hover:text-white transition-all shadow-xl hover:shadow-purple-900/10 hover:border-purple-500/30"
+                                    >
+                                        <Download className="w-5 h-5 text-purple-400" />
+                                        <span className="font-medium text-sm">{t.menu_download}</span>
+                                    </button>
+                                </div>
+                             </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Context Menu (Glassmorphism) */}
                 {contextMenu && (
@@ -1069,7 +1231,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                                     <input 
                                         type="file" 
                                         id="cmd-image-upload" 
-                                        accept="image/*" 
+                                        accept=".jpg,.jpeg,.png,.webp" 
                                         className="hidden" 
                                         onChange={handleRefImageSelect}
                                     />
@@ -1152,6 +1314,62 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                             >
                                 {t.confirm}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* History Selection Modal */}
+            {showHistoryModal && (
+                <div 
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+                    onClick={() => setShowHistoryModal(false)}
+                >
+                    <div 
+                        className="bg-[#1A1625] border border-white/10 rounded-2xl p-0 max-w-3xl w-[90vw] h-[80vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between p-5 border-b border-white/10 bg-white/5">
+                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                <History className="w-5 h-5 text-purple-400" />
+                                {t.history_modal_title}
+                            </h3>
+                            <button onClick={() => setShowHistoryModal(false)} className="text-white/40 hover:text-white transition-colors">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-[#0D0B14]">
+                            {compatibleHistory.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-full text-white/30 space-y-4">
+                                    <Sparkles className="w-12 h-12 opacity-50" />
+                                    <p>{t.no_history_images}</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                    {compatibleHistory.map((img) => (
+                                        <button
+                                            key={img.id}
+                                            onClick={() => handleHistorySelect(img)}
+                                            className="group relative aspect-square rounded-xl overflow-hidden border border-white/10 hover:border-purple-500 transition-all hover:ring-4 hover:ring-purple-500/20 focus:outline-none"
+                                        >
+                                            <img 
+                                                src={getProxyUrl(img.url)} 
+                                                alt={img.prompt} 
+                                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                                loading="lazy"
+                                            />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3">
+                                                <p className="text-xs text-white/90 line-clamp-2 text-left">{img.prompt}</p>
+                                                <div className="flex items-center gap-2 mt-1 text-[10px] text-white/50">
+                                                    <Clock className="w-3 h-3" />
+                                                    <span>{new Date(img.timestamp).toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -902,7 +902,8 @@ export default function App() {
                   t={t} 
                   provider={provider} 
                   setProvider={setProvider} 
-                  onOpenSettings={() => setShowSettings(true)} 
+                  onOpenSettings={() => setShowSettings(true)}
+                  history={history}
                 />
             </main>
         )}
