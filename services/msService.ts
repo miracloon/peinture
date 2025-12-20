@@ -105,6 +105,10 @@ const runWithMsTokenRetry = async <T>(operation: (token: string) => Promise<T>):
     } catch (error: any) {
       lastError = error;
       
+      if (error.name === 'AbortError') {
+        throw error;
+      }
+
       const isQuotaError = 
         error.message?.includes("429") ||
         error.status === 429 ||
@@ -232,12 +236,13 @@ export const editImageMS = async (
   width?: number,
   height?: number,
   steps: number = 16,
-  guidanceScale: number = 4
+  guidanceScale: number = 4,
+  signal?: AbortSignal
 ): Promise<GeneratedImage> => {
   // 1. Upload images to Gradio space to get public URLs. 
   // Per requirements: no token used for upload, anonymous access.
   const uploadedFilenames = await Promise.all(imageBlobs.map(blob => 
-    uploadToGradio(QWEN_EDIT_HF_BASE, blob, null)
+    uploadToGradio(QWEN_EDIT_HF_BASE, blob, null, signal)
   ));
   const imageUrls = uploadedFilenames.map(name => `${QWEN_EDIT_HF_FILE_PREFIX}${name}`);
 
@@ -259,7 +264,8 @@ export const editImageMS = async (
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal
       });
 
       if (!response.ok) {
@@ -292,13 +298,12 @@ export const editImageMS = async (
   });
 };
 
-export const optimizePromptMS = async (originalPrompt: string, lang: string): Promise<string> => {
+export const optimizePromptMS = async (originalPrompt: string): Promise<string> => {
   return runWithMsTokenRetry(async (token) => {
     try {
       const model = getOptimizationModel('modelscope');
       // Append the fixed suffix to the user's custom system prompt
-      const activePromptContent = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
-      const systemInstruction = activePromptContent.replace('{language}', lang === 'zh' ? 'Chinese' : 'English');
+      const systemInstruction = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
       
       const response = await fetch(MS_CHAT_API_URL, {
         method: 'POST',

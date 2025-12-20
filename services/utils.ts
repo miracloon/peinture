@@ -9,7 +9,7 @@ export function generateUUID(): string {
 
 // --- System Prompt Management ---
 
-export const FIXED_SYSTEM_PROMPT_SUFFIX = "\nI will ensure the output text is in {language}.";
+export const FIXED_SYSTEM_PROMPT_SUFFIX = "\nEnsure the output language matches the language of the prompt that needs to be optimized.";
 
 export const DEFAULT_SYSTEM_PROMPT_CONTENT = `I am a master AI image prompt engineering advisor, specializing in crafting prompts that yield cinematic, hyper-realistic, and deeply evocative visual narratives, optimized for advanced generative models.
 My core purpose is to meticulously rewrite, expand, and enhance user's image prompts.
@@ -159,4 +159,53 @@ Your output must strictly adhere to the following requirements: it must contain 
         console.error("Translation Error:", error);
         throw new Error("error_translation_failed");
     }
+};
+
+export const optimizeEditPrompt = async (imageBase64: string, prompt: string): Promise<string> => {
+  try {
+    // Pollinations AI OpenAI-compatible endpoint
+    const response = await fetch(POLLINATIONS_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openai-fast',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a professional AI image editing assistant.
+Your task is to analyze the image provided by the user (which may include user-drawn masks/indicated editing areas) and the user's text request, and deeply understand their intent.
+When analyzing the image, you must actively extract and integrate its inherent visual context, including but not limited to the image subject, existing elements, color scheme, lighting conditions, and overall atmosphere, ensuring seamless integration with the optimized editing instructions.
+Based on the visual context and text, optimize the user's editing instructions into more precise, descriptive prompts that are easier for the AI ​​model to understand.
+When the user's request is vague or incomplete, intelligently infer and supplement specific, reasonable visual details to refine the editing instructions.
+When generating optimized prompts, be sure to clearly incorporate descriptions of the expected visual changes, prioritizing the addition of detailed visual styles, precise lighting conditions, reasonable compositional layouts, and specific material textures to ensure the AI ​​model can accurately understand and execute the instructions.
+For example: 'Replace the masked area with [specific object], emphasizing its [material], [color], and [lighting effect]', 'Add a [new object] at [specified location], giving it a [specific style] and [compositional relationship]', or 'Adjust the overall image style to [artistic style], keeping [original elements] unchanged, but enhancing [a certain feature]'.
+Keep the generated prompts concise and descriptive, prioritizing the use of descriptive keywords and phrases that are easier for AI image models to understand and respond to, to maximize the effectiveness and accuracy of the prompt execution.
+Only reply with the optimized prompt text. Do not add any conversational content. Do not include any markdown syntax. Ensure the output language matches the language of the prompt that needs to be optimized.`
+          },
+          {
+            role: 'user',
+            content: [
+                { type: "text", text: prompt },
+                { type: "image_url", image_url: { url: imageBase64 } }
+            ]
+          }
+        ],
+        stream: false
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to optimize prompt");
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+
+    return content || prompt;
+  } catch (error) {
+    console.error("Optimize Edit Prompt Error:", error);
+    throw error;
+  }
 };

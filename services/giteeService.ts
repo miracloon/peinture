@@ -103,6 +103,10 @@ const runWithGiteeTokenRetry = async <T>(operation: (token: string) => Promise<T
     } catch (error: any) {
       lastError = error;
       
+      if (error.name === 'AbortError') {
+        throw error;
+      }
+
       const isQuotaError = 
         error.message?.includes("429") ||
         error.status === 429 ||
@@ -229,7 +233,8 @@ export const editImageGitee = async (
   width?: number,
   height?: number,
   steps: number = 16,
-  guidanceScale: number = 4
+  guidanceScale: number = 4,
+  signal?: AbortSignal
 ): Promise<GeneratedImage> => {
   return runWithGiteeTokenRetry(async (token) => {
     try {
@@ -257,7 +262,8 @@ export const editImageGitee = async (
         headers: {
           "Authorization": `Bearer ${token}`
         },
-        body: formData
+        body: formData,
+        signal
       });
 
       if (!response.ok) {
@@ -289,13 +295,12 @@ export const editImageGitee = async (
   });
 };
 
-export const optimizePromptGitee = async (originalPrompt: string, lang: string): Promise<string> => {
+export const optimizePromptGitee = async (originalPrompt: string): Promise<string> => {
   return runWithGiteeTokenRetry(async (token) => {
     try {
       const model = getOptimizationModel('gitee');
       // Append the fixed suffix to the user's custom system prompt
-      const activePromptContent = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
-      const systemInstruction = activePromptContent.replace('{language}', lang === 'zh' ? 'Chinese' : 'English');
+      const systemInstruction = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
 
       const response = await fetch(GITEE_CHAT_API_URL, {
         method: 'POST',

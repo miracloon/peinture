@@ -1,15 +1,17 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { generateImage, optimizePrompt, upscaler, createVideoTaskHF } from './services/hfService';
 import { generateGiteeImage, optimizePromptGitee, createVideoTask, getGiteeTaskStatus } from './services/giteeService';
 import { generateMSImage, optimizePromptMS } from './services/msService';
-import { translatePrompt } from './services/utils';
-import { GeneratedImage, AspectRatioOption, ModelOption, ProviderOption } from './types';
+import { translatePrompt, generateUUID } from './services/utils';
+import { uploadToCloud, isStorageConfigured } from './services/storageService';
+import { GeneratedImage, AspectRatioOption, ModelOption, ProviderOption, CloudImage } from './types';
 import { HistoryGallery } from './components/HistoryGallery';
 import { SettingsModal } from './components/SettingsModal';
 import { FAQModal } from './components/FAQModal';
 import { translations, Language } from './translations';
 import { ImageEditor } from './components/ImageEditor';
+import { CloudGallery } from './components/CloudGallery';
 import { Header, AppView } from './components/Header';
 import {
   Sparkles,
@@ -22,6 +24,9 @@ import { ControlPanel } from './components/ControlPanel';
 import { PreviewStage } from './components/PreviewStage';
 import { ImageToolbar } from './components/ImageToolbar';
 import { Tooltip } from './components/Tooltip';
+
+// Memoize Header to prevent re-renders when App re-renders (e.g. timer)
+const MemoizedHeader = memo(Header);
 
 export default function App() {
   // Language Initialization
@@ -43,7 +48,7 @@ export default function App() {
     { value: '9:16', label: t.ar_photo_9_16 },
     { value: '16:9', label: t.ar_movie },
     { value: '3:4', label: t.ar_portrait_3_4 },
-    { value: '4:3', label: t.ar_landscape_4_3 },
+    { value: '4:3', label: t.ar_portrait_3_4 },
     { value: '3:2', label: t.ar_portrait_3_2 },
     { value: '2:3', label: t.ar_landscape_2_3 },
   ];
@@ -120,6 +125,9 @@ export default function App() {
   const [isOptimizing, setIsOptimizing] = useState<boolean>(false);
   const [isUpscaling, setIsUpscaling] = useState<boolean>(false);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  // Cloud Upload State
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+
   const [currentImage, setCurrentImage] = useState<GeneratedImage | null>(null);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -148,6 +156,22 @@ export default function App() {
       return [];
     }
   });
+
+  // Cloud History State
+  const [cloudHistory, setCloudHistory] = useState<CloudImage[]>(() => {
+    try {
+        const saved = localStorage.getItem('ai_cloud_history');
+        if (!saved) return [];
+        return JSON.parse(saved);
+    } catch (e) {
+        return [];
+    }
+  });
+
+  // Save cloud history when changed
+  useEffect(() => {
+      localStorage.setItem('ai_cloud_history', JSON.stringify(cloudHistory));
+  }, [cloudHistory]);
 
   const [error, setError] = useState<string | null>(null);
   
@@ -474,11 +498,11 @@ export default function App() {
     try {
         let optimized = '';
         if (provider === 'gitee') {
-             optimized = await optimizePromptGitee(prompt, lang);
+             optimized = await optimizePromptGitee(prompt);
         } else if (provider === 'modelscope') {
-             optimized = await optimizePromptMS(prompt, lang);
+             optimized = await optimizePromptMS(prompt);
         } else {
-             optimized = await optimizePrompt(prompt, lang);
+             optimized = await optimizePrompt(prompt);
         }
         setPrompt(optimized);
     } catch (err: any) {
@@ -682,13 +706,22 @@ export default function App() {
           }
       }
 
-      // Ensure extension matches blob type if missing
-      if (!fileName.includes('.')) {
-          const type = blob.type.split('/')[1] || 'png';
-          fileName = `${fileName}.${type}`;
-      }
+      // 3. Handle Extension and NSFW Suffix
+      const blobType = blob.type.split('/')[1] || 'png';
+      
+      // Determine if filename already has an extension
+      const hasExtension = fileName.match(/\.[a-zA-Z0-9]+$/);
+      let ext = hasExtension ? hasExtension[0] : `.${blobType}`;
+      let base = hasExtension ? fileName.replace(/\.[a-zA-Z0-9]+$/, '') : fileName;
 
-      // 3. Mobile Strategy: Web Share API (Primary for iOS/Mobile)
+      // Inject NSFW suffix if needed
+      if (currentImage?.isBlurred && !base.toUpperCase().endsWith('.NSFW')) {
+          base += '.NSFW';
+      }
+      
+      fileName = base + ext;
+
+      // 4. Mobile Strategy: Web Share API (Primary for iOS/Mobile)
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
       if (isMobile) {
@@ -716,7 +749,7 @@ export default function App() {
           }
       }
 
-      // 4. Desktop/Fallback Strategy: Anchor Download
+      // 5. Desktop/Fallback Strategy: Anchor Download
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
@@ -737,6 +770,63 @@ export default function App() {
     }
   };
 
+  const handleUploadToCloud = async (imageBlobOrUrl: Blob | string, fileName?: string, metadata?: any) => {
+    if (isUploading) return;
+    setIsUploading(true);
+    
+    try {
+        if (!isStorageConfigured()) {
+            throw new Error("error_storage_config_missing");
+        }
+
+        let blob: Blob;
+        if (typeof imageBlobOrUrl === 'string') {
+            // Fetch blob from URL
+            const response = await fetch(imageBlobOrUrl);
+            if (!response.ok) throw new Error("Failed to fetch image for upload");
+            blob = await response.blob();
+        } else {
+            blob = imageBlobOrUrl;
+        }
+
+        // Use passed filename or generate a default one with prefix
+        // For generated images, we now pass ID as filename, but ensure we have a fallback
+        const finalFileName = fileName || `generated-${generateUUID()}`;
+        
+        // Use provided metadata or extract from currentImage if uploading from creation view
+        const finalMetadata = metadata || (currentImage ? { ...currentImage } : null);
+        
+        // Ensure dimensions are present in metadata if possible
+        if (finalMetadata && imageDimensions && !finalMetadata.width && !finalMetadata.height) {
+            finalMetadata.width = imageDimensions.width;
+            finalMetadata.height = imageDimensions.height;
+        }
+
+        const uploadedUrl = await uploadToCloud(blob, finalFileName, finalMetadata);
+
+        // Add to Cloud History (Keep local history in sync if needed, but CloudGallery fetches from cloud now)
+        const cloudImage: CloudImage = {
+            id: generateUUID(),
+            url: uploadedUrl,
+            prompt: finalFileName, // Use filename as fallback prompt
+            timestamp: Date.now(),
+            fileName: finalFileName
+        };
+        
+        setCloudHistory(prev => [cloudImage, ...prev]);
+        
+        console.log("Upload Success:", uploadedUrl);
+        
+    } catch (e: any) {
+        console.error("Cloud Upload Failed", e);
+        const msg = (t as any)[e.message] || t.error_s3_upload_failed; // Fallback to S3 message or general error
+        setError(msg);
+        throw e; // Re-throw for caller to handle UI updates (e.g., CloudGallery)
+    } finally {
+        setIsUploading(false);
+    }
+  };
+
   const isWorking = isLoading;
   const isLiveGenerating = currentImage?.videoStatus === 'generating';
   
@@ -747,15 +837,19 @@ export default function App() {
   // So we ONLY hide if isWorking (main image gen).
   const shouldHideToolbar = isWorking; 
 
+  // Stable callbacks for Header
+  const handleOpenSettings = useCallback(() => setShowSettings(true), []);
+  const handleOpenFAQ = useCallback(() => setShowFAQ(true), []);
+
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-gradient-brilliant">
       <div className="flex h-full grow flex-col">
         {/* Header Component */}
-        <Header 
+        <MemoizedHeader 
             currentView={currentView}
             setCurrentView={setCurrentView}
-            onOpenSettings={() => setShowSettings(true)}
-            onOpenFAQ={() => setShowFAQ(true)}
+            onOpenSettings={handleOpenSettings}
+            onOpenFAQ={handleOpenFAQ}
             t={t}
         />
 
@@ -883,6 +977,17 @@ export default function App() {
                                 onLiveClick={handleLiveClick}
                                 isLiveGenerating={isLiveGenerating}
                                 provider={provider}
+                                // Cloud Upload Props
+                                handleUploadToS3={() => {
+                                    if (currentImage) {
+                                        let fileName = currentImage.id || `image-${Date.now()}`;
+                                        if (currentImage.isBlurred) {
+                                            fileName += '.NSFW';
+                                        }
+                                        handleUploadToCloud(currentImage.url, fileName);
+                                    }
+                                }}
+                                isUploading={isUploading}
                             />
                         )}
                     </div>
@@ -896,14 +1001,23 @@ export default function App() {
 
                 </div>
             </main>
-        ) : (
+        ) : currentView === 'editor' ? (
             <main className="w-full flex-1 flex flex-col items-center justify-center md:p-4">
                 <ImageEditor 
                   t={t} 
                   provider={provider} 
                   setProvider={setProvider} 
-                  onOpenSettings={() => setShowSettings(true)}
+                  onOpenSettings={handleOpenSettings}
                   history={history}
+                  handleUploadToS3={handleUploadToCloud}
+                  isUploading={isUploading}
+                />
+            </main>
+        ) : (
+            <main className="w-full max-w-7xl mx-auto flex-1 flex flex-col gap-4 px-4 md:px-8 pb-8 pt-6">
+                <CloudGallery 
+                    t={t} 
+                    handleUploadToS3={handleUploadToCloud}
                 />
             </main>
         )}

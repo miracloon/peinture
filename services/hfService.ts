@@ -109,6 +109,11 @@ const runWithTokenRetry = async <T>(operation: (token: string | null) => Promise
     } catch (error: any) {
       lastError = error;
 
+      // Don't retry if aborted by user
+      if (error.name === 'AbortError') {
+        throw error;
+      }
+
       const isQuotaError =
         error.message === QUOTA_ERROR_KEY ||
         error.message?.includes("429") ||
@@ -130,7 +135,7 @@ const runWithTokenRetry = async <T>(operation: (token: string | null) => Promise
 
 // --- Gradio File Upload Helper ---
 
-export const uploadToGradio = async (baseUrl: string, blob: Blob, token: string | null): Promise<string> => {
+export const uploadToGradio = async (baseUrl: string, blob: Blob, token: string | null, signal?: AbortSignal): Promise<string> => {
     const formData = new FormData();
     formData.append('files', blob, 'image.png');
     
@@ -142,7 +147,8 @@ export const uploadToGradio = async (baseUrl: string, blob: Blob, token: string 
     const response = await fetch(`${baseUrl}/gradio_api/upload`, {
         method: 'POST',
         headers,
-        body: formData
+        body: formData,
+        signal
     });
 
     if (!response.ok) {
@@ -402,15 +408,17 @@ export const editImageQwen = async (
   prompt: string,
   width: number,
   height: number,
-  seed: number = Math.round(Math.random() * 2147483647),
   steps: number = 4,
-  guidanceScale: number = 1
+  guidanceScale: number = 1,
+  signal?: AbortSignal
 ): Promise<GeneratedImage> => {
   return runWithTokenRetry(async (token) => {
     try {
+      const seed = Math.round(Math.random() * 2147483647);
+
       // 1. Upload all Blobs to Gradio first to get temporary paths
       const imagePayloadPromises = imageBlobs.map(async (blob) => {
-          const path = await uploadToGradio(QWEN_IMAGE_EDIT_BASE_API_URL, blob, token);
+          const path = await uploadToGradio(QWEN_IMAGE_EDIT_BASE_API_URL, blob, token, signal);
           return { image: { path, meta: { _type: "gradio.FileData" } } };
       });
       
@@ -432,7 +440,8 @@ export const editImageQwen = async (
             width,
             true // Rewrite prompt
           ]
-        })
+        }),
+        signal
       });
       const { event_id } = await queue.json();
       const response = await fetch(QWEN_IMAGE_EDIT_BASE_API_URL + '/gradio_api/call/infer/' + event_id, {
@@ -440,6 +449,7 @@ export const editImageQwen = async (
           "Accept": "text/event-stream",
           ...getAuthHeaders(token)
         },
+        signal
       });
       const result = await response.text();
       const data = extractCompleteEventData(result);
@@ -515,12 +525,11 @@ export const upscaler = async (url: string): Promise<{ url: string }> => {
   });
 };
 
-export const optimizePrompt = async (originalPrompt: string, lang: string): Promise<string> => {
+export const optimizePrompt = async (originalPrompt: string): Promise<string> => {
   try {
     const model = getOptimizationModel('huggingface');
     // Append the fixed suffix to the user's custom system prompt
-    const activePromptContent = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
-    const systemInstruction = activePromptContent.replace('{language}', lang === 'zh' ? 'Chinese' : 'English');
+    const systemInstruction = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
 
     const response = await fetch(POLLINATIONS_API_URL, {
       method: 'POST',

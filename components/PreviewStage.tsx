@@ -102,6 +102,8 @@ export const PreviewStage: React.FC<PreviewStageProps> = ({
                                 beforeImage={currentImage.url}
                                 afterImage={tempUpscaledImage}
                                 alt={currentImage.prompt}
+                                labelBefore={t.compare_original}
+                                labelAfter={t.compare_upscaled}
                             />
                         </div>
                     ) : isLiveMode && currentImage.videoUrl ? (
