@@ -1,7 +1,4 @@
 
-
-
-
 import React, { useState, useEffect } from 'react';
 import { Info as LucideInfo, Eye as LucideEye, EyeOff as LucideEyeOff, Download as LucideDownload, Trash2 as LucideTrash2, X as LucideX, Check as LucideCheck, Loader2 as LucideLoader2, Film as LucideFilm, CloudUpload } from 'lucide-react';
 import { Icon4x as CustomIcon4x } from './Icons';
@@ -32,6 +29,7 @@ interface ImageToolbarProps {
     // Cloud Props
     handleUploadToS3?: () => void;
     isUploading?: boolean;
+    isUploaded?: boolean;
 }
 
 export const ImageToolbar: React.FC<ImageToolbarProps> = ({
@@ -54,7 +52,8 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
     isGeneratingVideoPrompt,
     provider,
     handleUploadToS3,
-    isUploading
+    isUploading,
+    isUploaded
 }) => {
     const [isStorageEnabled, setIsStorageEnabled] = useState(false);
 
@@ -177,11 +176,20 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
                     {/* Upload Button - Hidden if provider is Model Scope or Storage is OFF */}
                     {isStorageEnabled && !isLiveMode && currentImage.provider !== 'modelscope' && (
                         <>
-                            <Tooltip content={isUploading ? t.uploading : t.upload}>
+                            <Tooltip content={isUploading ? t.uploading : (isUploaded ? t.upload_success : t.upload)}>
                                 <button
                                     onClick={handleUploadToS3}
                                     disabled={isUploading}
-                                    className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${isUploading ? 'text-green-400 bg-green-500/10 cursor-not-allowed' : 'text-white/70 hover:text-green-400 hover:bg-white/10'}`}
+                                    className={`
+                                        flex items-center justify-center w-10 h-10 rounded-xl transition-all 
+                                        ${isUploading 
+                                            ? 'text-green-400 bg-green-500/10 cursor-not-allowed' 
+                                            : (isUploaded 
+                                                ? 'text-green-400 bg-green-500/20 border border-green-500/30 shadow-[0_0_10px_-3px_rgba(74,222,128,0.3)] hover:bg-green-500/30' 
+                                                : 'text-white/70 hover:text-green-400 hover:bg-white/10'
+                                            )
+                                        }
+                                    `}
                                 >
                                     {isUploading ? (
                                         <LucideLoader2 className="w-5 h-5 animate-spin" />

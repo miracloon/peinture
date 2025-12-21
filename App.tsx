@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import { generateImage, optimizePrompt, upscaler, createVideoTaskHF } from './services/hfService';
 import { generateGiteeImage, optimizePromptGitee, createVideoTask, getGiteeTaskStatus } from './services/giteeService';
 import { generateMSImage, optimizePromptMS } from './services/msService';
@@ -782,7 +782,16 @@ export default function App() {
         let blob: Blob;
         if (typeof imageBlobOrUrl === 'string') {
             // Fetch blob from URL
-            const response = await fetch(imageBlobOrUrl);
+            let fetchUrl = imageBlobOrUrl;
+            
+            // Check if Gitee provider to apply proxy
+            const context = metadata || (currentImage ? { ...currentImage } : {});
+            if (context.provider === 'gitee') {
+                 const cleanUrl = imageBlobOrUrl.replace(/^https?:\/\//, '');
+                 fetchUrl = `https://i0.wp.com/${cleanUrl}`;
+            }
+
+            const response = await fetch(fetchUrl);
             if (!response.ok) throw new Error("Failed to fetch image for upload");
             blob = await response.blob();
         } else {
@@ -836,6 +845,12 @@ export default function App() {
   // 2. Video generation is working (isLiveGenerating)
   // So we ONLY hide if isWorking (main image gen).
   const shouldHideToolbar = isWorking; 
+
+  // Check if current image is already uploaded
+  const isCurrentUploaded = useMemo(() => {
+      if (!currentImage) return false;
+      return cloudHistory.some(ci => ci.fileName && ci.fileName.includes(currentImage.id));
+  }, [currentImage, cloudHistory]);
 
   // Stable callbacks for Header
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
@@ -988,6 +1003,7 @@ export default function App() {
                                     }
                                 }}
                                 isUploading={isUploading}
+                                isUploaded={isCurrentUploaded}
                             />
                         )}
                     </div>
@@ -1018,6 +1034,7 @@ export default function App() {
                 <CloudGallery 
                     t={t} 
                     handleUploadToS3={handleUploadToCloud}
+                    onOpenSettings={handleOpenSettings}
                 />
             </main>
         )}

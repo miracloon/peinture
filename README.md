@@ -12,6 +12,8 @@ A sleek, dark-themed AI image generator built with React, TypeScript, and Tailwi
 
 ![Image Editor](https://cdn.u14.app/upload/WX20251219-170320@2x.jpg)
 
+![Cloud Gallery](https://cdn.u14.app/upload/WX20251220-165529@2x.jpg)
+
 ## ✨ Features
 
 - **Triple AI Providers**: Seamlessly switch between **Hugging Face**, **Gitee AI**, and **Model Scope** providers to access different model ecosystems and quotas.
