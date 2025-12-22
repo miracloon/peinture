@@ -84,7 +84,7 @@ export const CloudGallery: React.FC<CloudGalleryProps> = ({ t, handleUploadToS3,
                         setLocalUrls(prev => ({ ...prev, [file.key]: url }));
                     }
                 } catch (e) {
-                    console.error("Failed to load cloud image", file.key, e);
+                    console.error("Failed to load cloud image", file.key, e as any);
                 }
             }
         };

@@ -142,7 +142,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                         setGalleryLocalUrls(prev => ({ ...prev, [file.key]: url }));
                     }
                 } catch (e) {
-                    console.error("Failed to load WebDAV image", file.key, e);
+                    console.error("Failed to load WebDAV image", file.key, e as any);
                 }
             }
         };

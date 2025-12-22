@@ -86,6 +86,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
 
     useEffect(() => {
         if (isOpen) {
+            // Reset Tab to General
+            setActiveTab('general');
+
             // Load HF
             const storedToken = localStorage.getItem('huggingFaceToken') || '';
             setToken(storedToken);
@@ -299,7 +302,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                         style={{ transform: `translateX(-${activeTabIndex * 100}%)` }}
                     >
                         {tabs.map((tab) => (
-                            <div key={tab.id} className="w-full h-full flex-shrink-0 overflow-y-auto custom-scrollbar p-5 h-[300px]">
+                            <div key={tab.id} className="w-full h-full flex-shrink-0 overflow-y-auto custom-scrollbar p-5">
                                 {/* Tab 1: General */}
                                 {tab.id === 'general' && (
                                     <div className="space-y-5">
