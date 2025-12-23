@@ -2,6 +2,7 @@
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
 import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel } from "./utils";
 import { uploadToGradio } from "./hfService";
+import { API_MODEL_MAP } from "../constants";
 
 const MS_GENERATE_API_URL = "https://api-inference.modelscope.cn/v1/images/generations";
 const MS_CHAT_API_URL = "https://api-inference.modelscope.cn/v1/chat/completions";
@@ -174,11 +175,17 @@ export const generateMSImage = async (
   const finalSteps = steps ?? 9; 
   const sizeString = `${width}x${height}`;
 
+  // Get the actual API model string from the map
+  const apiModel = API_MODEL_MAP.modelscope[model];
+  if (!apiModel) {
+      throw new Error(`Model ${model} not supported on Model Scope`);
+  }
+
   return runWithMsTokenRetry(async (token) => {
     try {
       const requestBody: any = {
           prompt,
-          model,
+          model: apiModel,
           size: sizeString,
           seed: finalSeed,
           steps: finalSteps
@@ -213,7 +220,7 @@ export const generateMSImage = async (
       return {
         id: generateUUID(),
         url: imageUrl,
-        model,
+        model, // Return the standardized ID
         prompt,
         aspectRatio,
         timestamp: Date.now(),
@@ -249,9 +256,10 @@ export const editImageMS = async (
   // 2. Perform generation on Model Scope
   return runWithMsTokenRetry(async (token) => {
     try {
+      const apiModel = API_MODEL_MAP.modelscope['qwen-image-edit'];
       const requestBody: any = {
         prompt,
-        model: 'Qwen/Qwen-Image-Edit-2509',
+        model: apiModel,
         image_url: imageUrls,
         seed: Math.floor(Math.random() * 2147483647),
         steps: steps, // Steps range 4-28, default 16
@@ -283,7 +291,7 @@ export const editImageMS = async (
       return {
         id: generateUUID(),
         url: imageUrl,
-        model: 'Qwen/Qwen-Image-Edit-2509',
+        model: 'qwen-image-edit', // Unified ID
         prompt,
         aspectRatio: 'custom',
         timestamp: Date.now(),
@@ -304,6 +312,7 @@ export const optimizePromptMS = async (originalPrompt: string): Promise<string> 
       const model = getOptimizationModel('modelscope');
       // Append the fixed suffix to the user's custom system prompt
       const systemInstruction = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
+      const apiModel = API_MODEL_MAP.modelscope[model] || model;
       
       const response = await fetch(MS_CHAT_API_URL, {
         method: 'POST',
@@ -312,7 +321,7 @@ export const optimizePromptMS = async (originalPrompt: string): Promise<string> 
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          model: model,
+          model: apiModel,
           messages: [
             {
               role: 'system',

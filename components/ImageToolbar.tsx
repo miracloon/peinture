@@ -73,12 +73,23 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
 
     if (!currentImage) return null;
 
-    // Use the provider from props (current selected provider) to determine button visibility
-    const showLiveButton = provider === 'gitee' || provider === 'huggingface';
-    const showUpscaleButton = provider === 'huggingface';
+    // Use currentImage.provider to determine capabilities relative to the image source
+    // Fallback to current provider prop if image provider is missing (should be rare)
+    const imgProvider = currentImage.provider || provider;
+
+    // Logic for button visibility:
+    // 1. Details, NSFW, Download, Delete -> Always
+    // 2. Live -> Always (supported via cross-provider handling)
+    // 3. Upscale -> If provider is HF
+    // 4. Upload -> If storage configured
+    
+    // Live button is now enabled for all images
+    const showLiveButton = !isLiveMode; // Only hide if actively viewing the video (replaced by 'Image' button in PreviewStage)
+    const showUpscaleButton = imgProvider === 'huggingface';
+    const showUploadButton = isStorageEnabled && imgProvider !== 'huggingface';
     
     const isBusy = isLiveGenerating || isGeneratingVideoPrompt;
-    // Disable if busy (generating) OR if already in Live Mode (viewing video)
+    // Disable live button if busy (generating) OR if already in Live Mode (viewing video)
     const isLiveDisabled = isBusy || isLiveMode;
 
     return (
@@ -103,127 +114,129 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
                 </div>
             ) : (
                 /* Standard Toolbar */
-                <div className="pointer-events-auto flex items-center gap-1 p-1.5 rounded-2xl bg-black/60 backdrop-blur-md border border-white/10 shadow-2xl transition-opacity duration-300 opacity-100 md:opacity-0 md:group-hover:opacity-100">
+                <div className="pointer-events-auto max-w-[90%] overflow-x-auto scrollbar-hide rounded-2xl bg-black/60 backdrop-blur-md border border-white/10 shadow-2xl transition-opacity duration-300 opacity-100 md:opacity-0 md:group-hover:opacity-100">
+                    <div className="flex items-center gap-1 p-1.5 min-w-max">
 
-                    <Tooltip content={t.details}>
-                        <button
-                            onClick={() => setShowInfo(!showInfo)}
-                            className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${showInfo ? 'bg-purple-600 text-white shadow-lg' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
-                        >
-                            <LucideInfo className="w-5 h-5" />
-                        </button>
-                    </Tooltip>
+                        <Tooltip content={t.details}>
+                            <button
+                                onClick={() => setShowInfo(!showInfo)}
+                                className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${showInfo ? 'bg-purple-600 text-white shadow-lg' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+                            >
+                                <LucideInfo className="w-5 h-5" />
+                            </button>
+                        </Tooltip>
 
-                    <div className="w-px h-5 bg-white/10 mx-1"></div>
+                        <div className="w-px h-5 bg-white/10 mx-1"></div>
 
-                    {/* Live Button for Gitee or Hugging Face */}
-                    {showLiveButton && (
-                        <>
-                             <Tooltip content={isGeneratingVideoPrompt ? t.liveGeneratingDesc : (isLiveGenerating ? t.liveGenerating : t.live)}>
-                                <button
-                                    onClick={onLiveClick}
-                                    disabled={isLiveDisabled}
-                                    className={`
-                                        flex items-center justify-center w-10 h-10 rounded-xl transition-all
-                                        ${isLiveMode ? 'text-red-400 bg-red-500/10' : 'text-white/70 hover:text-red-400 hover:bg-white/10'}
-                                        ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}
-                                        ${isLiveMode && !isBusy ? 'cursor-default' : ''}
-                                        ${!isLiveMode && !isBusy ? 'cursor-pointer' : ''}
-                                    `}
-                                >
-                                    {(isLiveGenerating || isGeneratingVideoPrompt) ? (
-                                        <LucideLoader2 className="w-5 h-5 animate-spin text-red-400" />
-                                    ) : (
-                                        <LucideFilm className="w-5 h-5" />
-                                    )}
-                                </button>
-                            </Tooltip>
-                            <div className="w-px h-5 bg-white/10 mx-1"></div>
-                        </>
-                    )}
+                        {/* Live Button for Gitee or Hugging Face */}
+                        {showLiveButton && (
+                            <>
+                                 <Tooltip content={isGeneratingVideoPrompt ? t.liveGeneratingDesc : (isLiveGenerating ? t.liveGenerating : t.live)}>
+                                    <button
+                                        onClick={onLiveClick}
+                                        disabled={isLiveDisabled}
+                                        className={`
+                                            flex items-center justify-center w-10 h-10 rounded-xl transition-all
+                                            ${isLiveMode ? 'text-red-400 bg-red-500/10' : 'text-white/70 hover:text-red-400 hover:bg-white/10'}
+                                            ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}
+                                            ${isLiveMode && !isBusy ? 'cursor-default' : ''}
+                                            ${!isLiveMode && !isBusy ? 'cursor-pointer' : ''}
+                                        `}
+                                    >
+                                        {(isLiveGenerating || isGeneratingVideoPrompt) ? (
+                                            <LucideLoader2 className="w-5 h-5 animate-spin text-red-400" />
+                                        ) : (
+                                            <LucideFilm className="w-5 h-5" />
+                                        )}
+                                    </button>
+                                </Tooltip>
+                                <div className="w-px h-5 bg-white/10 mx-1"></div>
+                            </>
+                        )}
 
-                    {/* Upscale Button - Conditionally Rendered for Hugging Face only, and NOT in Live mode */}
-                    {showUpscaleButton && !isLiveMode && (
-                        <>
-                            <Tooltip content={isUpscaling ? t.upscaling : t.upscale}>
-                                <button
-                                    onClick={handleUpscale}
-                                    disabled={isUpscaling || currentImage.isUpscaled}
-                                    className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${currentImage.isUpscaled ? 'text-purple-400 bg-purple-500/10' : 'text-white/70 hover:text-purple-400 hover:bg-white/10'} disabled:opacity-50 disabled:cursor-not-allowed`}
-                                >
-                                    {isUpscaling ? (
-                                        <LucideLoader2 className="w-5 h-5 animate-spin text-purple-400" />
-                                    ) : (
-                                        <CustomIcon4x className="w-5 h-5 transition-colors duration-300" />
-                                    )}
-                                </button>
-                            </Tooltip>
-                            <div className="w-px h-5 bg-white/10 mx-1"></div>
-                        </>
-                    )}
+                        {/* Upscale Button - Conditionally Rendered for Hugging Face only, and NOT in Live mode */}
+                        {showUpscaleButton && !isLiveMode && (
+                            <>
+                                <Tooltip content={isUpscaling ? t.upscaling : t.upscale}>
+                                    <button
+                                        onClick={handleUpscale}
+                                        disabled={isUpscaling || currentImage.isUpscaled}
+                                        className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${currentImage.isUpscaled ? 'text-purple-400 bg-purple-500/10' : 'text-white/70 hover:text-purple-400 hover:bg-white/10'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                                    >
+                                        {isUpscaling ? (
+                                            <LucideLoader2 className="w-5 h-5 animate-spin text-purple-400" />
+                                        ) : (
+                                            <CustomIcon4x className="w-5 h-5 transition-colors duration-300" />
+                                        )}
+                                    </button>
+                                </Tooltip>
+                                <div className="w-px h-5 bg-white/10 mx-1"></div>
+                            </>
+                        )}
 
-                    <Tooltip content={t.toggleBlur}>
-                        <button
-                            onClick={handleToggleBlur}
-                            className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${currentImage.isBlurred ? 'text-purple-400 bg-white/10' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
-                        >
-                            {currentImage.isBlurred ? <LucideEyeOff className="w-5 h-5" /> : <LucideEye className="w-5 h-5" />}
-                        </button>
-                    </Tooltip>
+                        <Tooltip content={t.toggleBlur}>
+                            <button
+                                onClick={handleToggleBlur}
+                                className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${currentImage.isBlurred ? 'text-purple-400 bg-white/10' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+                            >
+                                {currentImage.isBlurred ? <LucideEyeOff className="w-5 h-5" /> : <LucideEye className="w-5 h-5" />}
+                            </button>
+                        </Tooltip>
 
-                    <div className="w-px h-5 bg-white/10 mx-1"></div>
+                        <div className="w-px h-5 bg-white/10 mx-1"></div>
 
-                    {/* Upload Button - Hidden if provider is Model Scope or Storage is OFF */}
-                    {isStorageEnabled && !isLiveMode && currentImage.provider !== 'modelscope' && (
-                        <>
-                            <Tooltip content={isUploading ? t.uploading : (isUploaded ? t.upload_success : t.upload)}>
-                                <button
-                                    onClick={handleUploadToS3}
-                                    disabled={isUploading}
-                                    className={`
-                                        flex items-center justify-center w-10 h-10 rounded-xl transition-all 
-                                        ${isUploading 
-                                            ? 'text-green-400 bg-green-500/10 cursor-not-allowed' 
-                                            : (isUploaded 
-                                                ? 'text-green-400 bg-green-500/20 border border-green-500/30 shadow-[0_0_10px_-3px_rgba(74,222,128,0.3)] hover:bg-green-500/30' 
-                                                : 'text-white/70 hover:text-green-400 hover:bg-white/10'
-                                            )
-                                        }
-                                    `}
-                                >
-                                    {isUploading ? (
-                                        <LucideLoader2 className="w-5 h-5 animate-spin" />
-                                    ) : (
-                                        <CloudUpload className="w-5 h-5" />
-                                    )}
-                                </button>
-                            </Tooltip>
-                            <div className="w-px h-5 bg-white/10 mx-1"></div>
-                        </>
-                    )}
+                        {/* Upload Button */}
+                        {showUploadButton && (
+                            <>
+                                <Tooltip content={isUploading ? t.uploading : (isUploaded ? t.upload_success : t.upload)}>
+                                    <button
+                                        onClick={handleUploadToS3}
+                                        disabled={isUploading}
+                                        className={`
+                                            flex items-center justify-center w-10 h-10 rounded-xl transition-all 
+                                            ${isUploading 
+                                                ? 'text-green-400 bg-green-500/10 cursor-not-allowed' 
+                                                : (isUploaded 
+                                                    ? 'text-green-400 bg-green-500/20 border border-green-500/30 shadow-[0_0_10px_-3px_rgba(74,222,128,0.3)] hover:bg-green-500/30' 
+                                                    : 'text-white/70 hover:text-green-400 hover:bg-white/10'
+                                                )
+                                            }
+                                        `}
+                                    >
+                                        {isUploading ? (
+                                            <LucideLoader2 className="w-5 h-5 animate-spin" />
+                                        ) : (
+                                            <CloudUpload className="w-5 h-5" />
+                                        )}
+                                    </button>
+                                </Tooltip>
+                                <div className="w-px h-5 bg-white/10 mx-1"></div>
+                            </>
+                        )}
 
-                    <Tooltip content={t.download}>
-                        <button
-                            onClick={handleDownload}
-                            disabled={isDownloading}
-                            className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${isDownloading ? 'text-purple-400 bg-purple-500/10 cursor-not-allowed' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
-                        >
-                            {isDownloading ? (
-                                <LucideLoader2 className="w-5 h-5 animate-spin" />
-                            ) : (
-                                <LucideDownload className="w-5 h-5" />
-                            )}
-                        </button>
-                    </Tooltip>
+                        <Tooltip content={t.download}>
+                            <button
+                                onClick={handleDownload}
+                                disabled={isDownloading}
+                                className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${isDownloading ? 'text-purple-400 bg-purple-500/10 cursor-not-allowed' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+                            >
+                                {isDownloading ? (
+                                    <LucideLoader2 className="w-5 h-5 animate-spin" />
+                                ) : (
+                                    <LucideDownload className="w-5 h-5" />
+                                )}
+                            </button>
+                        </Tooltip>
 
-                    <Tooltip content={t.delete}>
-                        <button
-                            onClick={handleDelete}
-                            className="flex items-center justify-center w-10 h-10 rounded-xl text-white/70 hover:text-red-400 hover:bg-red-500/10 transition-all"
-                        >
-                            <LucideTrash2 className="w-5 h-5" />
-                        </button>
-                    </Tooltip>
+                        <Tooltip content={t.delete}>
+                            <button
+                                onClick={handleDelete}
+                                className="flex items-center justify-center w-10 h-10 rounded-xl text-white/70 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                            >
+                                <LucideTrash2 className="w-5 h-5" />
+                            </button>
+                        </Tooltip>
+                    </div>
                 </div>
             )}
         </div>

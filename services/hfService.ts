@@ -9,7 +9,7 @@ const FLUX_SCHNELL_BASE_API_URL = "https://black-forest-labs-flux-1-schnell.hf.s
 const UPSCALER_BASE_API_URL = "https://tuan2308-upscaler.hf.space";
 const POLLINATIONS_API_URL = "https://text.pollinations.ai/openai";
 const WAN2_VIDEO_API_URL = "https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space";
-const QWEN_IMAGE_EDIT_BASE_API_URL = "https://linoyts-qwen-image-edit-2509-fast.hf.space";
+export const QWEN_IMAGE_EDIT_BASE_API_URL = "https://linoyts-qwen-image-edit-2509-fast.hf.space";
 
 // --- Token Management System ---
 
@@ -135,9 +135,9 @@ const runWithTokenRetry = async <T>(operation: (token: string | null) => Promise
 
 // --- Gradio File Upload Helper ---
 
-export const uploadToGradio = async (baseUrl: string, blob: Blob, token: string | null, signal?: AbortSignal): Promise<string> => {
+export const uploadToGradio = async (baseUrl: string, image: string | Blob, token: string | null, signal?: AbortSignal): Promise<string> => {
     const formData = new FormData();
-    formData.append('files', blob, 'image.png');
+    formData.append('files', image);
     
     const headers: Record<string, string> = {};
     if (token) {
@@ -345,7 +345,7 @@ const generateQwenImage = async (
       return {
         id: generateUUID(),
         url: data[0].url,
-        model: 'qwen-image-fast',
+        model: 'qwen-image', // Standardized ID
         prompt,
         aspectRatio,
         timestamp: Date.now(),
@@ -461,7 +461,7 @@ export const editImageQwen = async (
       return {
         id: generateUUID(),
         url: data[0][0].image.url,
-        model: 'qwen-image-edit-fast',
+        model: 'qwen-image-edit', // Unified ID
         prompt,
         aspectRatio: 'custom',
         timestamp: Date.now(),
@@ -489,11 +489,12 @@ export const generateImage = async (
 
   if (model === 'flux-1-schnell') {
     return generateFluxSchnellImage(prompt, aspectRatio, finalSeed, enableHD, steps);
-  } else if (model === 'qwen-image-fast') {
+  } else if (model === 'qwen-image') {
     return generateQwenImage(prompt, aspectRatio, seed, steps);
   } else if (model === 'ovis-image') {
     return generateOvisImage(prompt, aspectRatio, finalSeed, enableHD, steps)
   } else {
+    // Default to z-image-turbo
     return generateZImage(prompt, aspectRatio, finalSeed, enableHD, steps);
   }
 };
@@ -570,19 +571,42 @@ export const optimizePrompt = async (originalPrompt: string): Promise<string> =>
 
 const VIDEO_NEGATIVE_PROMPT = "Vivid colors, overexposed, static, blurry details, subtitles, style, artwork, painting, image, still, overall grayish tone, worst quality, low quality, JPEG compression artifacts, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn face, deformed, disfigured, malformed limbs, fused fingers, still image, cluttered background, three legs, many people in the background, walking backward, Screen shaking";
 
-export const createVideoTaskHF = async (imageUrl: string, seed: number = 42): Promise<string> => {
+export const createVideoTaskHF = async (imageInput: string | Blob, seed: number = 42): Promise<string> => {
   return runWithTokenRetry(async (token) => {
     try {
       const finalSeed = seed ?? Math.floor(Math.random() * 2147483647);
       const settings = getVideoSettings('huggingface');
       
+      let filePath = '';
+      
+      if (typeof imageInput === 'string') {
+          // If input is URL, check if it is already a Gradio file (rare) or needs upload
+          // Ideally we download and upload to ensure it's on the specific space
+          // But as a fallback, we can try passing URL if API supports it (Wan2 usually needs upload)
+          // For robustness, we assume caller passed a Blob or we fetch it here if strictly needed.
+          // But to keep it simple, we assume the caller passes a blob if it's cross-origin.
+          // If it's a string, we assume it's publicly accessible and pass it directly 
+          // OR better: fetch it here.
+          try {
+              const fetchUrl = imageInput.replace(/^https?:\/\//, 'https://i0.wp.com/');
+              const res = await fetch(fetchUrl);
+              const blob = await res.blob();
+              filePath = await uploadToGradio(WAN2_VIDEO_API_URL, blob, token);
+          } catch(e) {
+              console.warn("Failed to fetch image for video, using URL directly", e);
+              filePath = imageInput;
+          }
+      } else {
+          filePath = await uploadToGradio(WAN2_VIDEO_API_URL, imageInput, token);
+      }
+
       // Step 1: POST to queue
       const queue = await fetch(WAN2_VIDEO_API_URL + '/gradio_api/call/generate_video', {
         method: "POST",
         headers: getAuthHeaders(token),
         body: JSON.stringify({
           data: [
-            { "path": imageUrl, "meta": { "_type": "gradio.FileData" } },
+            { "path": filePath, "meta": { "_type": "gradio.FileData" } },
             settings.prompt,
             settings.steps, // Steps from settings
             VIDEO_NEGATIVE_PROMPT,

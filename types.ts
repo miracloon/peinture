@@ -64,20 +64,15 @@ export type AspectRatioOption = "1:1" | "3:2" | "2:3" | "3:4" | "4:3" | "4:5" | 
 
 export type ModelOption = 
     | "z-image-turbo" 
-    | "qwen-image-fast" 
+    | "qwen-image" 
     | "ovis-image" 
-    | "Qwen-Image"
+    | "flux-2"
     | "flux-1-schnell" 
-    | "FLUX_1-Krea-dev"
-    | "FLUX.1-dev"
-    | "FLUX.2-dev"
-    | "Tongyi-MAI/Z-Image-Turbo"
-    | "Qwen/Qwen-Image"
-    | "black-forest-labs/FLUX.2-dev"
-    | "black-forest-labs/FLUX.1-Krea-dev"
-    | "MusePublic/489_ckpt_FLUX_1";
+    | "flux-1-krea"
+    | "flux-1"
+    | string; // Allow custom model strings
 
-export type ProviderOption = "huggingface" | "gitee" | "modelscope";
+export type ProviderOption = "huggingface" | "gitee" | "modelscope" | string;
 
 export interface GenerationParams {
     model: ModelOption;
@@ -87,3 +82,34 @@ export interface GenerationParams {
     steps?: number;
     guidanceScale?: number;
 }
+
+export interface RemoteModel {
+  id: string;
+  name: string;
+  steps?: {
+    range: [number, number];
+    default: number;
+  };
+  guidance?: {
+    range: [number, number];
+    default: number;
+  };
+}
+
+export interface RemoteModelList {
+  generate?: RemoteModel[];
+  edit?: RemoteModel[];
+  video?: RemoteModel[];
+  text?: RemoteModel[];
+}
+
+export interface CustomProvider {
+    id: string;
+    name: string;
+    apiUrl: string;
+    token?: string;
+    models: RemoteModelList;
+    enabled: boolean;
+}
+
+export type ServiceMode = 'local' | 'server' | 'hydration';

@@ -1,6 +1,4 @@
 
-
-
 export type Language = 'en' | 'zh';
 
 export const translations = {
@@ -42,15 +40,15 @@ export const translations = {
     toggleBlur: "Toggle Blur / NSFW",
     settings: "Settings",
     help: "FAQ",
-    hfToken: "Hugging Face Token",
+    hfToken: "Access Token",
     hfTokenHelp: "Optional. Provide multiple tokens. Get",
     hfTokenLink: "Access Token",
     hfTokenHelpEnd: "to increase free quota.",
-    giteeToken: "Gitee AI Token",
+    giteeToken: "Access Token",
     giteeTokenHelp: "Required. Provide multiple tokens. Get",
     giteeTokenLink: "Access Token",
     giteeTokenHelpEnd: "from dashboard.",
-    msToken: "Model Scope Token",
+    msToken: "Access Token",
     msTokenHelp: "Required. Provide multiple tokens. Get",
     msTokenLink: "Access Token",
     msTokenHelpEnd: "from dashboard.",
@@ -83,8 +81,20 @@ export const translations = {
     liveGeneratingDesc: "Generating Video Description...",
     liveError: "Video Generation Failed",
 
+    // Service Mode
+    service_mode: "Service Mode",
+    mode_local: "Local",
+    mode_server: "Server",
+    mode_hydration: "Hydration",
+    access_password_title: "Authentication Required",
+    access_password_desc: "The server requires an access password to proceed.",
+    access_password_placeholder: "Enter Access Password",
+    access_password_invalid: "Invalid Password",
+    switch_to_local: "Switch to Local Mode",
+
     // Tabs
     tab_general: "General",
+    tab_provider: "Providers",
     tab_prompt: "Prompt",
     tab_live: "Live",
     tab_storage: "S3 Storage", // Kept for legacy if needed, but UI uses dynamic label
@@ -127,11 +137,45 @@ export const translations = {
     liveNotSupported: "Live Video is not supported for this provider yet.",
 
     // System Prompts
-    systemPrompts: "Role Setting",
+    systemPrompts: "Prompt Optimization",
+    translationPrompt: "Translation Prompt",
     promptContent: "Prompt Content",
     restoreDefault: "Restore Default",
     systemPromptHelp: "Customize the role setting used for prompt optimization.",
+    translationPromptHelp: "Customize the role setting used for prompt translation.",
     optimizationModel: "Current Model",
+
+    // Providers
+    provider_huggingface: "Hugging Face",
+    provider_gitee: "Gitee AI",
+    provider_modelscope: "Model Scope",
+    
+    // Custom Providers
+    add_provider: "Add Provider",
+    custom_providers: "Custom Providers",
+    provider_name: "Provider Name",
+    api_url: "API URL",
+    api_token: "API Token (Optional)",
+    get_models: "Get Model List",
+    fetch_status_idle: "Get Models",
+    fetch_status_loading: "Fetching...",
+    fetch_status_success: "Success",
+    fetch_status_failed: "Failed",
+    no_models_found: "No models found",
+    models_count: "{count} models found",
+
+    // Models Labels
+    model_creation: "Creation Model",
+    model_edit: "Edit Model",
+    model_live: "Live Model",
+    model_text: "Prompt Optimization",
+
+    // General Tab
+    openSource: "Open Source Code",
+    openSourceDesc: "Released under the MIT License. Open source and free forever.",
+    clearData: "Clear Data",
+    clearDataDesc: "Reset all parameters and clear local storage data.",
+    clearDataConfirm: "Are you sure you want to clear all data and reset the app? This action cannot be undone.",
 
     // Errors
     error_quota_exhausted: "Your today's quota has been used up. You can set up Hugging Face Token to get more quota.",
@@ -175,7 +219,7 @@ export const translations = {
     faq_q7: "How does Prompt Optimization work?",
     faq_a7: "We use powerful LLMs to expand your short ideas into detailed, artistically rich prompts. Depending on the provider, we use models like DeepSeek or OpenAI. You can customize the 'Role Setting' in the Settings menu to control how the AI rewrites your prompts.",
     faq_q8: "How does Live Image work?",
-    faq_a8: "The Live feature transforms static images into dynamic short videos. By leveraging advanced Image-to-Video models (such as Wan2.2), the AI analyzes the scene's composition to generate natural motion and cinematic effects, bringing your creation to life. Currently, only Hugging Face and Gitee AI are supported.",
+    faq_a8: "The Live feature transforms static images into dynamic short videos. By leveraging advanced Image-to-Video models (such as Wan2.2), the AI analyzes the scene's composition to generate natural motion and cinematic effects, bringing your creation to life. Currently, only Hugging Face and Gitee AI are supported. Use the newly added Right-Slide on Settings Tab to explore more!",
     faq_q9: "How does the Image Editor work?",
     faq_a9: "The Image Editor allows you to modify existing images using AI. You can draw on a transparent layer (using Brush or Rectangle tools) to indicate where you want changes, then provide an AI command. The system merges your drawings with the original image and sends them to the Qwen-Image-Edit model. You can also upload up to 3 reference images to guide the AI's artistic style or content.",
     faq_q10: "How do Cloud Storage Services work?",
@@ -306,15 +350,15 @@ export const translations = {
     toggleBlur: "切换模糊 / NSFW",
     settings: "设置",
     help: "常见问题",
-    hfToken: "Hugging Face 令牌",
+    hfToken: "访问令牌",
     hfTokenHelp: "可选。支持多个令牌。获取",
     hfTokenLink: "访问令牌",
     hfTokenHelpEnd: "以获得更多免费配额。",
-    giteeToken: "Gitee AI 令牌",
+    giteeToken: "访问令牌",
     giteeTokenHelp: "必需。支持多个令牌。获取",
     giteeTokenLink: "访问令牌",
     giteeTokenHelpEnd: "从控制台。",
-    msToken: "Model Scope 令牌",
+    msToken: "访问令牌",
     msTokenHelp: "必需。支持多个令牌。获取",
     msTokenLink: "访问令牌",
     msTokenHelpEnd: "从控制台。",
@@ -347,8 +391,20 @@ export const translations = {
     liveGeneratingDesc: "生成视频描述中...",
     liveError: "视频生成失败",
     
+    // Service Mode
+    service_mode: "服务模式",
+    mode_local: "本地",
+    mode_server: "服务器",
+    mode_hydration: "混合",
+    access_password_title: "需要认证",
+    access_password_desc: "服务器需要访问密码才能继续。",
+    access_password_placeholder: "输入访问密码",
+    access_password_invalid: "密码无效",
+    switch_to_local: "切换到本地模式",
+
     // Tabs
     tab_general: "通用",
+    tab_provider: "服务商",
     tab_prompt: "提示词",
     tab_live: "Live 图",
     tab_storage: "S3 存储",
@@ -391,11 +447,45 @@ export const translations = {
     liveNotSupported: "当前服务商暂不支持 Live 图功能。",
 
     // System Prompts
-    systemPrompts: "角色设定",
+    systemPrompts: "提示词优化",
+    translationPrompt: "提示词翻译",
     promptContent: "提示词内容",
     restoreDefault: "恢复默认内容",
     systemPromptHelp: "自定义用于提示词优化的角色设定。",
+    translationPromptHelp: "自定义用于自动翻译的角色设定。",
     optimizationModel: "当前模型",
+
+    // Providers
+    provider_huggingface: "Hugging Face",
+    provider_gitee: "Gitee AI",
+    provider_modelscope: "Model Scope",
+
+    // Custom Providers
+    add_provider: "新增服务商",
+    custom_providers: "自定义服务商",
+    provider_name: "服务商名称",
+    api_url: "API 地址",
+    api_token: "API 令牌 (可选)",
+    get_models: "获取模型列表",
+    fetch_status_idle: "获取模型",
+    fetch_status_loading: "获取中...",
+    fetch_status_success: "成功",
+    fetch_status_failed: "失败",
+    no_models_found: "未找到模型",
+    models_count: "找到 {count} 个模型",
+
+    // Models Labels
+    model_creation: "创作模型",
+    model_edit: "编辑模型",
+    model_live: "Live 模型",
+    model_text: "提示词优化",
+
+    // General Tab
+    openSource: "开源代码",
+    openSourceDesc: "基于 MIT 协议发布。永久开源免费。",
+    clearData: "清除数据",
+    clearDataDesc: "重置所有参数并清除本地存储数据。",
+    clearDataConfirm: "确认要清除所有数据并重置应用吗？此操作无法撤销。",
 
     // Errors
     error_quota_exhausted: "您的今日配额已用完。您可以设置 Hugging Face 令牌以获取更多配额。",
@@ -439,7 +529,7 @@ export const translations = {
     faq_q7: "提示词优化是如何工作的？",
     faq_a7: "我们使用强大的 LLM 将您简短的想法扩展为详细、富有艺术感的提示词。根据服务商的不同，我们会调用 DeepSeek 或 OpenAI 等模型。您可以在“设置”菜单的“提示词”选项卡中自定义“角色设定”，以控制 AI 重写提示词的方式。",
     faq_q8: "Live 图生成原理是什么？",
-    faq_a8: "Live 功能利用先进的图生视频模型（如 Wan2.2），将静态图片转化为动态短视频。AI 会分析画面构图，生成自然的运动轨迹和电影级特效，赋予您的作品生命力。目前仅 Hugging Face 与 Gitee AI 支持。",
+    faq_a8: "Live 功能利用先进的图生视频模型（如 Wan2.2），将静态图片转化为动态短视频。AI 会分析画面构图，生成自然的运动轨迹和电影级特效，赋予您的作品生命力。目前仅 Hugging Face 与 Gitee AI 支持。可以在设置页面滑动 Tab 栏查看更多设置。",
     faq_q9: "图片编辑功能是如何工作的？",
     faq_a9: "图片编辑器允许您利用 AI 修改现有图片。您可以在透明图层上绘画（使用画笔或矩形工具）来标注想要修改的区域，然后输入 AI 指令。系统会将您的涂鸦与原图合并，并发送给 Qwen-Image-Edit 模型进行处理。您还可以上传最多 3 张参考图，以引导 AI 的艺术风格或内容生成。",
     faq_q10: "云存储服务是如何工作的？",

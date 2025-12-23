@@ -1,22 +1,35 @@
 
-import React, { useState, useEffect } from 'react';
-import { X, Save, KeyRound, Languages, ShieldCheck, ShieldAlert, Database, Eye, EyeOff, MessageSquare, RotateCcw, Settings2, MessageSquareText, Brain, Film, Clock, Layers, Sparkles, HardDrive, Server, Loader2, Check, AlertCircle, PlugZap } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Save, KeyRound, Languages, ShieldCheck, ShieldAlert, Database, Eye, EyeOff, MessageSquare, RotateCcw, Settings2, MessageSquareText, Brain, Film, Clock, Layers, Sparkles, HardDrive, Server, Loader2, Check, AlertCircle, PlugZap, Cpu, ChevronDown, ChevronUp, Plus, Trash2, Globe, ChevronRight, Github, Router } from 'lucide-react';
 import { Language } from '../translations';
 import { getTokenStats } from '../services/hfService';
 import { getGiteeTokenStats } from '../services/giteeService';
 import { getMsTokenStats } from '../services/msService';
-import { ProviderOption, S3Config, WebDAVConfig, StorageType } from '../types';
+import { ProviderOption, S3Config, WebDAVConfig, StorageType, ModelOption, CustomProvider, RemoteModelList, ServiceMode } from '../types';
 import { 
     getSystemPromptContent,
     saveSystemPromptContent,
     DEFAULT_SYSTEM_PROMPT_CONTENT,
-    getOptimizationModel,
-    saveOptimizationModel,
-    DEFAULT_OPTIMIZATION_MODELS,
+    getTranslationPromptContent,
+    saveTranslationPromptContent,
+    DEFAULT_TRANSLATION_SYSTEM_PROMPT,
     getVideoSettings,
     saveVideoSettings,
     DEFAULT_VIDEO_SETTINGS,
-    VideoSettings
+    VideoSettings,
+    getEditModelConfig,
+    saveEditModelConfig,
+    getLiveModelConfig,
+    saveLiveModelConfig,
+    getTextModelConfig,
+    saveTextModelConfig,
+    getCustomProviders,
+    addCustomProvider,
+    removeCustomProvider,
+    generateUUID,
+    getServiceMode,
+    saveServiceMode,
+    saveCustomProviders
 } from '../services/utils';
 import { 
     getS3Config, 
@@ -30,7 +43,16 @@ import {
     testWebDAVConnection,
     testS3Connection
 } from '../services/storageService';
-import { Select } from './Select';
+import { Select, Option, OptionGroup } from './Select';
+import { 
+    HF_MODEL_OPTIONS, 
+    GITEE_MODEL_OPTIONS, 
+    MS_MODEL_OPTIONS, 
+    EDIT_MODELS, 
+    LIVE_MODELS, 
+    TEXT_MODELS,
+    UnifiedModelOption
+} from '../constants';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -39,11 +61,23 @@ interface SettingsModalProps {
     setLang: (lang: Language) => void;
     t: any;
     provider: ProviderOption;
+    // New props for updating creation model
+    setProvider?: (p: ProviderOption) => void;
+    setModel?: (m: ModelOption) => void;
+    currentModel?: ModelOption;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang, setLang, t, provider }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang, setLang, t, provider, setProvider, setModel, currentModel }) => {
     // Tab State
-    const [activeTab, setActiveTab] = useState<'general' | 'prompt' | 'live' | 's3' | 'webdav'>('general');
+    const [activeTab, setActiveTab] = useState<'general' | 'provider' | 'models' | 'prompt' | 'live' | 's3' | 'webdav'>('general');
+    const tabsRef = useRef<HTMLDivElement>(null);
+    const [canScrollTabs, setCanScrollTabs] = useState(false);
+
+    // Provider Collapse State
+    const [openProvider, setOpenProvider] = useState<string>('huggingface');
+
+    // Service Mode
+    const [serviceMode, setServiceModeState] = useState<ServiceMode>('local');
 
     // HF Token State
     const [token, setToken] = useState('');
@@ -60,11 +94,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
     const [msStats, setMsStats] = useState({ total: 0, active: 0, exhausted: 0 });
     const [showMsToken, setShowMsToken] = useState(false);
 
+    // Custom Providers State
+    const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
+    const [newProviderName, setNewProviderName] = useState('');
+    const [newProviderUrl, setNewProviderUrl] = useState('');
+    const [newProviderToken, setNewProviderToken] = useState('');
+    const [fetchStatus, setFetchStatus] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
+    const [fetchedModels, setFetchedModels] = useState<RemoteModelList | null>(null);
+
+    // Refresh states for existing providers
+    const [refreshingProviders, setRefreshingProviders] = useState<Record<string, boolean>>({});
+    const [refreshSuccessProviders, setRefreshSuccessProviders] = useState<Record<string, boolean>>({});
+
     // System Prompt State
     const [systemPrompt, setSystemPrompt] = useState('');
+    const [translationPrompt, setTranslationPrompt] = useState('');
 
-    // Optimization Model State
-    const [optimModel, setOptimModel] = useState('');
+    // Unified Model States
+    const [creationModelValue, setCreationModelValue] = useState<string>('');
+    const [editModelValue, setEditModelValue] = useState<string>('');
+    const [liveModelValue, setLiveModelValue] = useState<string>('');
+    const [textModelValue, setTextModelValue] = useState<string>('');
 
     // Video Settings State
     const [videoSettings, setVideoSettings] = useState<VideoSettings>(DEFAULT_VIDEO_SETTINGS['huggingface']);
@@ -84,33 +134,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
     const [isTestingS3, setIsTestingS3] = useState(false);
     const [testS3Result, setTestS3Result] = useState<{ success: boolean; message: string } | null>(null);
 
+    // Clear Data Confirmation State
+    const [showClearConfirm, setShowClearConfirm] = useState(false);
+
     useEffect(() => {
         if (isOpen) {
-            // Reset Tab to General
-            setActiveTab('general');
+            // Load Service Mode
+            setServiceModeState(getServiceMode());
 
-            // Load HF
+            // Load Tokens
             const storedToken = localStorage.getItem('huggingFaceToken') || '';
             setToken(storedToken);
             setStats(getTokenStats(storedToken));
 
-            // Load Gitee
             const storedGiteeToken = localStorage.getItem('giteeToken') || '';
             setGiteeToken(storedGiteeToken);
             setGiteeStats(getGiteeTokenStats(storedGiteeToken));
 
-            // Load Model Scope
             const storedMsToken = localStorage.getItem('msToken') || '';
             setMsToken(storedMsToken);
             setMsStats(getMsTokenStats(storedMsToken));
 
-            // Load System Prompt
+            // Load Custom Providers
+            setCustomProviders(getCustomProviders());
+
+            // Load System Prompts
             setSystemPrompt(getSystemPromptContent());
+            setTranslationPrompt(getTranslationPromptContent());
 
-            // Load Optimization Model for current provider
-            setOptimModel(getOptimizationModel(provider));
-
-            // Load Video Settings for current provider
+            // Load Video Settings for current provider (or default)
             setVideoSettings(getVideoSettings(provider));
 
             // Load Storage Config
@@ -121,30 +173,174 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
             // Reset test state
             setTestWebDAVResult(null);
             setTestS3Result(null);
+
+            // Load Unified Models
+            const editConfig = getEditModelConfig();
+            setEditModelValue(`${editConfig.provider}:${editConfig.model}`);
+
+            const liveConfig = getLiveModelConfig();
+            setLiveModelValue(`${liveConfig.provider}:${liveConfig.model}`);
+
+            const textConfig = getTextModelConfig();
+            setTextModelValue(`${textConfig.provider}:${textConfig.model}`);
+
+            // Initialize Creation Model Value from props
+            if (provider && currentModel) {
+                setCreationModelValue(`${provider}:${currentModel}`);
+            }
+            
+            // Check tabs scroll on open
+            setTimeout(checkTabsScroll, 100);
+        } else {
+            // Reset Tab to Provider (Default)
+            setActiveTab('general');
+            setShowClearConfirm(false);
         }
-    }, [isOpen, provider]);
+    }, [isOpen, provider, currentModel]);
+
+    // Handle Service Mode Change
+    const handleServiceModeChange = (newMode: ServiceMode) => {
+        setServiceModeState(newMode);
+        
+        // Reset selections if switching to incompatible modes logic
+        if (newMode === 'local') {
+            // If user previously selected a custom provider model, reset to HF default
+            const customList = getCustomProviders();
+            const currentProviderIsCustom = customList.some(cp => cp.id === provider);
+            
+            if (currentProviderIsCustom && setProvider && setModel) {
+                setProvider('huggingface');
+                setModel(HF_MODEL_OPTIONS[0].value as ModelOption);
+                setCreationModelValue(`huggingface:${HF_MODEL_OPTIONS[0].value}`);
+            }
+        }
+    };
+
+    // Check Tabs Scroll Logic
+    const checkTabsScroll = () => {
+        if (tabsRef.current) {
+            const { scrollLeft, scrollWidth, clientWidth } = tabsRef.current;
+            // Use a small tolerance (5px)
+            setCanScrollTabs(scrollLeft + clientWidth < scrollWidth - 5);
+        }
+    };
+
+    useEffect(() => {
+        window.addEventListener('resize', checkTabsScroll);
+        return () => window.removeEventListener('resize', checkTabsScroll);
+    }, []);
+
+    const handleScrollTabsRight = () => {
+        if (tabsRef.current) {
+            tabsRef.current.scrollBy({ left: 150, behavior: 'smooth' });
+            setTimeout(checkTabsScroll, 300);
+        }
+    };
+
+    // Helper to clean labels
+    const cleanLabel = (label: string) => {
+        return label.replace(/\s*\(HF\)$/, '').replace(/\s*\(Gitee\)$/, '').replace(/\s*\(MS\)$/, '');
+    };
+
+    // Group Options including Custom Providers based on Service Mode
+    const getAvailableModelGroups = (baseList: UnifiedModelOption[], type: 'generate' | 'edit' | 'video' | 'text'): OptionGroup[] => {
+        const groups: OptionGroup[] = [];
+        const isServer = serviceMode === 'server';
+        const isLocal = serviceMode === 'local';
+        const isHydration = serviceMode === 'hydration';
+
+        // 1. Default Providers (HF, Gitee, MS)
+        // Show if Local or Hydration
+        if (isLocal || isHydration) {
+            const hfOptions = baseList.filter(m => m.provider === 'huggingface').map(m => ({ value: m.value, label: cleanLabel(m.label) }));
+            if (hfOptions.length > 0) {
+                groups.push({ label: t.provider_huggingface, options: hfOptions });
+            }
+            
+            if (giteeToken || localStorage.getItem('giteeToken')) {
+                const giteeOptions = baseList.filter(m => m.provider === 'gitee').map(m => ({ value: m.value, label: cleanLabel(m.label) }));
+                if (giteeOptions.length > 0) {
+                    groups.push({ label: t.provider_gitee, options: giteeOptions });
+                }
+            }
+            
+            if (msToken || localStorage.getItem('msToken')) {
+                const msOptions = baseList.filter(m => m.provider === 'modelscope').map(m => ({ value: m.value, label: cleanLabel(m.label) }));
+                if (msOptions.length > 0) {
+                    groups.push({ label: t.provider_modelscope, options: msOptions });
+                }
+            }
+        }
+
+        // 2. Custom Providers
+        // Show if Server or Hydration
+        if (isServer || isHydration) {
+            customProviders.forEach(cp => {
+                const models = cp.models[type];
+                if (models && models.length > 0) {
+                    groups.push({
+                        label: cp.name,
+                        options: models.map(m => ({
+                            label: m.name,
+                            value: `${cp.id}:${m.id}`
+                        }))
+                    });
+                }
+            });
+        }
+
+        return groups;
+    };
+
+    const getCreationModelGroups = (): OptionGroup[] => {
+        const groups: OptionGroup[] = [];
+        const isServer = serviceMode === 'server';
+        const isLocal = serviceMode === 'local';
+        const isHydration = serviceMode === 'hydration';
+
+        // Base Providers - Show if Local or Hydration
+        if (isLocal || isHydration) {
+            // HF
+            const hfOptions = HF_MODEL_OPTIONS.map(m => ({ label: m.label, value: `huggingface:${m.value}` }));
+            groups.push({ label: t.provider_huggingface, options: hfOptions });
+            
+            // Gitee
+            if (giteeToken || localStorage.getItem('giteeToken')) {
+                const giteeOptions = GITEE_MODEL_OPTIONS.map(m => ({ label: m.label, value: `gitee:${m.value}` }));
+                groups.push({ label: t.provider_gitee, options: giteeOptions });
+            }
+
+            // MS
+            if (msToken || localStorage.getItem('msToken')) {
+                const msOptions = MS_MODEL_OPTIONS.map(m => ({ label: m.label, value: `modelscope:${m.value}` }));
+                groups.push({ label: t.provider_modelscope, options: msOptions });
+            }
+        }
+
+        // Custom Providers - Show if Server or Hydration
+        if (isServer || isHydration) {
+            customProviders.forEach(cp => {
+                const models = cp.models.generate;
+                if (models && models.length > 0) {
+                    groups.push({
+                        label: cp.name,
+                        options: models.map(m => ({
+                            label: m.name,
+                            value: `${cp.id}:${m.id}`
+                        }))
+                    });
+                }
+            });
+        }
+
+        return groups;
+    };
 
     // HF Handlers
     const handleTokenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newVal = e.target.value;
         setToken(newVal);
         setStats(getTokenStats(newVal));
-    };
-
-    const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-        const text = e.clipboardData.getData('text');
-        if (text.includes('\n') || text.includes('\r')) {
-            e.preventDefault();
-            const normalized = text.split(/[\r\n]+/).map(t => t.trim()).filter(Boolean).join(',');
-            
-            const input = e.currentTarget;
-            const start = input.selectionStart ?? token.length;
-            const end = input.selectionEnd ?? token.length;
-            
-            const newValue = token.substring(0, start) + normalized + token.substring(end);
-            setToken(newValue);
-            setStats(getTokenStats(newValue));
-        }
     };
 
     // Gitee Handlers
@@ -154,22 +350,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
         setGiteeStats(getGiteeTokenStats(newVal));
     };
 
-    const handleGiteePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-        const text = e.clipboardData.getData('text');
-        if (text.includes('\n') || text.includes('\r')) {
-            e.preventDefault();
-            const normalized = text.split(/[\r\n]+/).map(t => t.trim()).filter(Boolean).join(',');
-            
-            const input = e.currentTarget;
-            const start = input.selectionStart ?? giteeToken.length;
-            const end = input.selectionEnd ?? giteeToken.length;
-            
-            const newValue = giteeToken.substring(0, start) + normalized + giteeToken.substring(end);
-            setGiteeToken(newValue);
-            setGiteeStats(getGiteeTokenStats(newValue));
-        }
-    };
-
     // Model Scope Handlers
     const handleMsTokenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newVal = e.target.value;
@@ -177,19 +357,117 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
         setMsStats(getMsTokenStats(newVal));
     };
 
-    const handleMsPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-        const text = e.clipboardData.getData('text');
-        if (text.includes('\n') || text.includes('\r')) {
-            e.preventDefault();
-            const normalized = text.split(/[\r\n]+/).map(t => t.trim()).filter(Boolean).join(',');
+    // Custom Provider Handlers
+    const handleFetchModels = async () => {
+        if (!newProviderUrl) return;
+        setFetchStatus('loading');
+        try {
+            const url = newProviderUrl.replace(/\/$/, '') + '/v1/models';
+            const headers: Record<string, string> = {};
+            if (newProviderToken) {
+                headers['Authorization'] = `Bearer ${newProviderToken}`;
+            }
             
-            const input = e.currentTarget;
-            const start = input.selectionStart ?? msToken.length;
-            const end = input.selectionEnd ?? msToken.length;
+            const response = await fetch(url, { headers });
+            if (!response.ok) throw new Error('Fetch failed');
             
-            const newValue = msToken.substring(0, start) + normalized + msToken.substring(end);
-            setMsToken(newValue);
-            setMsStats(getMsTokenStats(newValue));
+            const data: RemoteModelList = await response.json();
+            setFetchedModels(data);
+            setFetchStatus('success');
+        } catch (e) {
+            console.error("Failed to fetch models", e);
+            setFetchStatus('failed');
+            setFetchedModels(null);
+        }
+    };
+
+    const handleClearAddForm = () => {
+        setNewProviderName('');
+        setNewProviderUrl('');
+        setNewProviderToken('');
+        setFetchStatus('idle');
+        setFetchedModels(null);
+        setOpenProvider('');
+    };
+
+    const handleAddCustomProvider = () => {
+        if (!newProviderUrl || !fetchedModels) return;
+        
+        let finalName = newProviderName.trim();
+        if (!finalName) {
+            try {
+                const urlStr = newProviderUrl.startsWith('http') ? newProviderUrl : `https://${newProviderUrl}`;
+                const url = new URL(urlStr);
+                const hostname = url.hostname;
+                const parts = hostname.split('.');
+                if (parts.length >= 2) {
+                    finalName = parts[parts.length - 2];
+                } else {
+                    finalName = hostname;
+                }
+                // Capitalize first letter
+                finalName = finalName.charAt(0).toUpperCase() + finalName.slice(1);
+            } catch {
+                finalName = 'Custom';
+            }
+        }
+        
+        const newProvider: CustomProvider = {
+            id: generateUUID(),
+            name: finalName,
+            apiUrl: newProviderUrl,
+            token: newProviderToken,
+            models: fetchedModels,
+            enabled: true
+        };
+        
+        addCustomProvider(newProvider);
+        setCustomProviders(getCustomProviders());
+        
+        // Dispatch storage event to update ControlPanel immediately
+        window.dispatchEvent(new Event("storage"));
+        
+        handleClearAddForm();
+    };
+
+    const handleDeleteCustomProvider = (id: string) => {
+        removeCustomProvider(id);
+        setCustomProviders(getCustomProviders());
+        window.dispatchEvent(new Event("storage"));
+    };
+
+    const handleUpdateCustomProvider = (id: string, updates: Partial<CustomProvider>) => {
+        setCustomProviders(prev => prev.map(cp => cp.id === id ? { ...cp, ...updates } : cp));
+    };
+
+    const handleRefreshCustomModels = async (id: string) => {
+        const provider = customProviders.find(p => p.id === id);
+        if (!provider) return;
+        
+        setRefreshingProviders(prev => ({ ...prev, [id]: true }));
+        setRefreshSuccessProviders(prev => ({ ...prev, [id]: false })); // Reset success
+
+        try {
+            const url = provider.apiUrl.replace(/\/$/, '') + '/v1/models';
+            const headers: Record<string, string> = {};
+            if (provider.token) {
+                headers['Authorization'] = `Bearer ${provider.token}`;
+            }
+            const response = await fetch(url, { headers });
+            if (!response.ok) throw new Error('Fetch failed');
+            const data = await response.json();
+            
+            handleUpdateCustomProvider(id, { models: data });
+            
+            // Success Feedback
+            setRefreshSuccessProviders(prev => ({ ...prev, [id]: true }));
+            setTimeout(() => {
+                setRefreshSuccessProviders(prev => ({ ...prev, [id]: false }));
+            }, 2500);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setRefreshingProviders(prev => ({ ...prev, [id]: false }));
         }
     };
 
@@ -204,12 +482,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
         localStorage.setItem('msToken', msToken.trim());
         
         saveSystemPromptContent(systemPrompt);
-        saveOptimizationModel(provider, optimModel);
+        saveTranslationPromptContent(translationPrompt);
         saveVideoSettings(provider, videoSettings);
         
         saveStorageType(storageType);
         saveS3Config(s3Config);
         saveWebDAVConfig(webdavConfig);
+
+        // Save Unified Models
+        saveEditModelConfig(editModelValue);
+        saveLiveModelConfig(liveModelValue);
+        saveTextModelConfig(textModelValue);
+        
+        // Save Service Mode
+        saveServiceMode(serviceMode);
+        
+        // Save Custom Providers (persists edits)
+        saveCustomProviders(customProviders);
+
+        // Update Creation Model if changed
+        if (creationModelValue && setProvider && setModel) {
+            const [newProvider, newModel] = creationModelValue.split(':');
+            setProvider(newProvider as ProviderOption);
+            setModel(newModel as ModelOption);
+        }
         
         // Dispatch storage event to notify components
         window.dispatchEvent(new Event("storage"));
@@ -219,7 +515,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
 
     const handleRestoreDefault = () => {
         setSystemPrompt(DEFAULT_SYSTEM_PROMPT_CONTENT);
-        setOptimModel(DEFAULT_OPTIMIZATION_MODELS[provider]);
+    };
+
+    const handleRestoreTranslationDefault = () => {
+        setTranslationPrompt(DEFAULT_TRANSLATION_SYSTEM_PROMPT);
     };
     
     const handleTestWebDAV = async () => {
@@ -248,25 +547,132 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
         }
     };
 
+    const handleClearData = () => {
+        localStorage.clear();
+        sessionStorage.clear();
+        window.location.reload();
+    };
+
     const getEndpointPlaceholder = () => {
          const region = s3Config.region || 'us-east-1';
          return `https://s3.${region}.amazonaws.com`;
     };
 
+    // Render Collapsible Provider Section
+    const renderProviderPanel = (
+        id: string,
+        title: string,
+        dotColorClass: string,
+        children: React.ReactNode
+    ) => (
+        <div className="border-b border-white/5 last:border-0">
+            <div className="flex items-center w-full group">
+                <button
+                    onClick={() => setOpenProvider(openProvider === id ? '' : id)}
+                    className="flex-1 flex items-center justify-between py-4 text-left"
+                >
+                    <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${dotColorClass} ring-4 ring-white/[0.02] group-hover:ring-white/[0.05] transition-all`} />
+                        <span className={`text-sm font-medium transition-colors ${openProvider === id ? 'text-white' : 'text-white/60 group-hover:text-white'}`}>
+                            {title}
+                        </span>
+                    </div>
+                    <div className={`text-white/40 transition-transform duration-300 mr-2 ${openProvider === id ? 'rotate-180 text-white/80' : 'rotate-0 group-hover:text-white/60'}`}>
+                        <ChevronDown className="w-4 h-4" />
+                    </div>
+                </button>
+            </div>
+            
+            <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${openProvider === id ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                <div className="overflow-hidden">
+                    <div className="p-2 space-y-4 mb-2">
+                        {children}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    // Helper to Render Token Section (Reused inside panels)
+    const renderTokenInput = (
+        value: string,
+        onChange: (e: React.ChangeEvent<HTMLInputElement>) => void,
+        isShow: boolean,
+        toggleShow: () => void,
+        statsObj: { total: number, active: number, exhausted: number },
+        placeholder: string,
+        helpStart: string,
+        linkText: string,
+        helpEnd: string,
+        linkUrl: string
+    ) => (
+        <div className="space-y-4">
+            <div className="relative group">
+                <input
+                    type={isShow ? "text" : "password"}
+                    value={value}
+                    onChange={onChange}
+                    placeholder={placeholder}
+                    className="w-full pl-4 pr-10 py-2.5 bg-[#1A1625] border border-white/10 rounded-xl text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/50 transition-all font-mono text-sm"
+                />
+                <button
+                    type="button"
+                    onClick={toggleShow}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
+                >
+                    {isShow ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+            </div>
+            
+            {statsObj.total > 1 && (
+                <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-white/5 border border-white/5 rounded-xl p-2.5 text-center">
+                        <div className="text-[10px] text-white/40 uppercase tracking-wider mb-0.5">{t.tokenTotal}</div>
+                        <div className="text-sm font-bold text-white font-mono">{statsObj.total}</div>
+                    </div>
+                    <div className="bg-green-500/10 border border-green-500/10 rounded-xl p-2.5 text-center">
+                        <div className="text-[10px] text-green-400/60 uppercase tracking-wider mb-0.5">{t.tokenActive}</div>
+                        <div className="text-sm font-bold text-green-400 font-mono flex items-center justify-center gap-1">
+                           <ShieldCheck className="w-3 h-3" /> {statsObj.active}
+                        </div>
+                    </div>
+                    <div className="bg-red-500/10 border border-red-500/10 rounded-xl p-2.5 text-center">
+                        <div className="text-[10px] text-red-400/60 uppercase tracking-wider mb-0.5">{t.tokenExhausted}</div>
+                        <div className="text-sm font-bold text-red-400 font-mono flex items-center justify-center gap-1">
+                           <ShieldAlert className="w-3 h-3" /> {statsObj.exhausted}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <p className="text-xs text-white/40 leading-relaxed">
+                {helpStart} <a href={linkUrl} target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 hover:underline transition-colors">{linkText}</a> {helpEnd}
+            </p>
+        </div>
+    );
+
     // Tabs Config
     const tabs = [
         { id: 'general', icon: Settings2, label: t.tab_general },
+        { id: 'provider', icon: Server, label: t.tab_provider },
+        { id: 'models', icon: Cpu, label: t.model },
         { id: 'prompt', icon: MessageSquareText, label: t.tab_prompt },
-        { id: 'live', icon: Film, label: t.tab_live },
+        { id: 'live', icon: Film, label: t.tab_live }
     ];
 
     if (storageType === 's3') {
         tabs.push({ id: 's3', icon: HardDrive, label: t.tab_storage });
     } else if (storageType === 'webdav') {
-        tabs.push({ id: 'webdav', icon: Server, label: t.tab_webdav });
+        tabs.push({ id: 'webdav', icon: Database, label: t.tab_webdav });
     }
 
     const activeTabIndex = tabs.findIndex(tab => tab.id === activeTab);
+
+    // Determine visibility based on Service Mode
+    const showBaseProviders = serviceMode === 'local' || serviceMode === 'hydration';
+    const showCustomProviders = serviceMode === 'server' || serviceMode === 'hydration';
+    // Local mode hides "Add" button and custom provider list
+    const showAddCustomProvider = serviceMode !== 'local'; 
 
     if (!isOpen) return null;
 
@@ -280,32 +686,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                     </button>
                 </div>
 
-                {/* Tab Navigation */}
-                <div className="flex items-center px-5 border-b border-white/[0.06] space-x-6 flex-shrink-0 overflow-x-auto scrollbar-hide">
-                    {tabs.map((tab) => (
-                        <button 
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id as any)}
-                            className={`group relative py-4 text-sm font-medium transition-colors duration-300 flex items-center gap-2 flex-shrink-0 ${activeTab === tab.id ? 'text-white' : 'text-white/40 hover:text-white/80'}`}
+                {/* Tab Navigation with Scroll Button */}
+                <div className="relative border-b border-white/[0.06]">
+                    <div 
+                        ref={tabsRef}
+                        onScroll={checkTabsScroll}
+                        className="flex items-center px-5 space-x-6 overflow-x-auto scrollbar-hide pr-12"
+                    >
+                        {tabs.map((tab) => (
+                            <button 
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id as any)}
+                                className={`group relative py-4 text-sm font-medium transition-colors duration-300 flex items-center gap-2 flex-shrink-0 ${activeTab === tab.id ? 'text-white' : 'text-white/40 hover:text-white/80'}`}
+                            >
+                                <tab.icon className={`w-4 h-4 transition-colors duration-300 ${activeTab === tab.id ? 'text-purple-400' : 'text-current group-hover:text-purple-400/70'}`} />
+                                {tab.label}
+                                <span className={`absolute bottom-0 left-0 w-full h-0.5 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full shadow-[0_-2px_10px_rgba(168,85,247,0.1)] transition-all duration-300 ease-out origin-center ${activeTab === tab.id ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-0'}`} />
+                            </button>
+                        ))}
+                    </div>
+                    {/* Right Scroll Button */}
+                    <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-[#0D0B14] via-[#0D0B14]/80 to-transparent flex items-center justify-center pointer-events-none">
+                        <button
+                            onClick={handleScrollTabsRight}
+                            disabled={!canScrollTabs}
+                            className={`pointer-events-auto p-1.5 rounded-full transition-all duration-300 ${canScrollTabs ? 'text-white bg-white/10 hover:bg-white/20 shadow-lg' : 'text-white/20'}`}
                         >
-                            <tab.icon className={`w-4 h-4 transition-colors duration-300 ${activeTab === tab.id ? 'text-purple-400' : 'text-current group-hover:text-purple-400/70'}`} />
-                            {tab.label}
-                            <span className={`absolute bottom-0 left-0 w-full h-0.5 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full shadow-[0_-2px_10px_rgba(168,85,247,0.6)] transition-all duration-300 ease-out origin-center ${activeTab === tab.id ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-0'}`} />
+                            <ChevronRight className="w-4 h-4" />
                         </button>
-                    ))}
+                    </div>
                 </div>
                 
                 {/* Tab Content Container */}
-                <div className="flex-1 overflow-hidden relative">
+                <div className="flex-1 overflow-x-hidden overflow-y-auto relative">
                     <div 
                         className="flex h-full transition-transform duration-500 ease-in-out"
                         style={{ transform: `translateX(-${activeTabIndex * 100}%)` }}
                     >
                         {tabs.map((tab) => (
-                            <div key={tab.id} className="w-full h-full flex-shrink-0 overflow-y-auto custom-scrollbar p-5">
+                            <div key={tab.id} className="w-full h-full flex-shrink-0 custom-scrollbar p-5">
                                 {/* Tab 1: General */}
                                 {tab.id === 'general' && (
-                                    <div className="space-y-5">
+                                    <div className="space-y-6">
                                         {/* Language Selector */}
                                         <div>
                                             <label className="flex items-center gap-2 text-xs font-medium text-white/80 mb-2">
@@ -336,6 +758,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                             </div>
                                         </div>
 
+                                        {/* Service Mode Selector */}
+                                        <div>
+                                            <label className="flex items-center gap-2 text-xs font-medium text-white/80 mb-2">
+                                                <Router className="w-3.5 h-3.5 text-blue-400" />
+                                                {t.service_mode}
+                                            </label>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {[
+                                                    { id: 'local', label: t.mode_local },
+                                                    { id: 'server', label: t.mode_server },
+                                                    { id: 'hydration', label: t.mode_hydration }
+                                                ].map(option => (
+                                                    <button
+                                                        key={option.id}
+                                                        onClick={() => handleServiceModeChange(option.id as ServiceMode)}
+                                                        className={`px-2 py-2.5 rounded-xl text-xs font-medium transition-all duration-200 border truncate ${
+                                                            serviceMode === option.id
+                                                            ? 'bg-blue-600/90 border-blue-500/50 text-white shadow-lg shadow-blue-900/20'
+                                                            : 'bg-white/[0.03] border-white/10 text-white/60 hover:bg-white/[0.06] hover:text-white hover:border-white/20'
+                                                        }`}
+                                                    >
+                                                        {option.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
                                         {/* Storage Service Selector */}
                                         <div>
                                             <label className="flex items-center gap-2 text-xs font-medium text-white/80 mb-2">
@@ -350,7 +799,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                                 ].map(option => (
                                                     <button
                                                         key={option.id}
-                                                        onClick={() => setStorageType(option.id as StorageType)}
+                                                        onClick={() => {
+                                                            setStorageType(option.id as StorageType)
+                                                            if (option.id === 's3') setActiveTab('s3');
+                                                            if (option.id === 'webdav') setActiveTab('webdav');
+                                                            setTimeout(() => handleScrollTabsRight(), 300)
+                                                        }}
                                                         className={`px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-200 border ${
                                                             storageType === option.id
                                                             ? 'bg-green-600/90 border-green-500/50 text-white shadow-lg shadow-green-900/20'
@@ -363,199 +817,329 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                             </div>
                                         </div>
 
-                                        {/* HF Token */}
-                                        {provider === 'huggingface' && (
-                                            <div>
-                                                <label className="flex items-center gap-2 text-xs font-medium text-white/80 mb-2">
-                                                    <KeyRound className="w-3.5 h-3.5 text-yellow-500" />
-                                                    {t.hfToken}
-                                                </label>
-                                                <div className="relative group">
-                                                    <input
-                                                        type={showToken ? "text" : "password"}
-                                                        value={token}
-                                                        onChange={handleTokenChange}
-                                                        onPaste={handlePaste}
-                                                        placeholder="hf_...,hf_..."
-                                                        className="w-full pl-4 pr-10 py-2.5 bg-white/[0.03] border border-white/10 rounded-xl text-white placeholder:text-white/20 focus:outline-0 focus:ring-4 focus:ring-yellow-500/10 focus:border-yellow-500/50 hover:border-white/20 transition-all duration-300 ease-out font-mono text-xs"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setShowToken(!showToken)}
-                                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
-                                                    >
-                                                        {showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                                    </button>
-                                                </div>
-                                                
-                                                {stats.total > 1 && (
-                                                    <div className="mt-3 grid grid-cols-3 gap-2">
-                                                        <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.06] flex flex-col items-center group hover:border-white/10 transition-colors">
-                                                            <span className="text-[10px] uppercase text-white/40 font-bold tracking-wider mb-0.5">{t.tokenTotal}</span>
-                                                            <div className="flex items-center gap-1.5 text-white/90 font-mono text-xs font-medium">
-                                                                <Database className="w-3 h-3 opacity-50 group-hover:opacity-100 transition-opacity" />
-                                                                {stats.total}
-                                                            </div>
-                                                        </div>
-                                                        <div className="bg-green-500/5 rounded-lg p-2.5 border border-green-500/10 flex flex-col items-center group hover:border-green-500/20 transition-colors">
-                                                            <span className="text-[10px] uppercase text-green-400/60 font-bold tracking-wider mb-0.5">{t.tokenActive}</span>
-                                                            <div className="flex items-center gap-1.5 text-green-400 font-mono text-xs font-medium">
-                                                                <ShieldCheck className="w-3 h-3 opacity-70 group-hover:opacity-100 transition-opacity" />
-                                                                {stats.active}
-                                                            </div>
-                                                        </div>
-                                                        <div className="bg-red-500/5 rounded-lg p-2.5 border border-red-500/10 flex flex-col items-center group hover:border-red-500/20 transition-colors">
-                                                            <span className="text-[10px] uppercase text-red-400/60 font-bold tracking-wider mb-0.5">{t.tokenExhausted}</span>
-                                                            <div className="flex items-center gap-1.5 text-red-400 font-mono text-xs font-medium">
-                                                                <ShieldAlert className="w-3 h-3 opacity-70 group-hover:opacity-100 transition-opacity" />
-                                                                {stats.exhausted}
-                                                            </div>
-                                                        </div>
+                                        {/* Clear Data */}
+                                        <div className="pt-2 border-t border-white/5">
+                                            <label className="flex items-center gap-2 text-xs font-medium text-red-400 mb-2">
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                                {t.clearData}
+                                            </label>
+                                            <p className="text-xs text-white/40 mb-3">{t.clearDataDesc}</p>
+                                            
+                                            {!showClearConfirm ? (
+                                                <button
+                                                    onClick={() => setShowClearConfirm(true)}
+                                                    className="w-full py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl text-xs font-medium transition-colors"
+                                                >
+                                                    {t.clearData}
+                                                </button>
+                                            ) : (
+                                                <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                                                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
+                                                        <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                                                        <span className="text-xs text-red-200 leading-relaxed">
+                                                            {t.clearDataConfirm}
+                                                        </span>
                                                     </div>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => setShowClearConfirm(false)}
+                                                            className="flex-1 py-2 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white rounded-lg text-xs font-medium transition-colors"
+                                                        >
+                                                            {t.cancel}
+                                                        </button>
+                                                        <button
+                                                            onClick={handleClearData}
+                                                            className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition-colors shadow-lg shadow-red-900/20"
+                                                        >
+                                                            {t.confirm}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Tab 2: Provider */}
+                                {tab.id === 'provider' && (
+                                    <div>
+                                        {/* Default Providers - Only show if mode supports it */}
+                                        {showBaseProviders && (
+                                            <>
+                                                {renderProviderPanel(
+                                                    'huggingface', 
+                                                    t.provider_huggingface, 
+                                                    'bg-yellow-500',
+                                                    renderTokenInput(
+                                                        token, 
+                                                        handleTokenChange, 
+                                                        showToken, 
+                                                        () => setShowToken(!showToken), 
+                                                        stats, 
+                                                        'hf_...,hf_...', 
+                                                        t.hfTokenHelp, 
+                                                        t.hfTokenLink, 
+                                                        t.hfTokenHelpEnd, 
+                                                        "https://huggingface.co/settings/tokens"
+                                                    )
                                                 )}
 
-                                                <p className="mt-2 text-[10px] text-white/40 leading-relaxed pl-1">
-                                                    {t.hfTokenHelp} <a className="text-yellow-500 hover:text-yellow-400 underline decoration-yellow-500/30 underline-offset-2 transition-colors" href="https://huggingface.co/settings/tokens" target="_blank">{t.hfTokenLink}</a> {t.hfTokenHelpEnd}
-                                                </p>
-                                            </div>
+                                                {renderProviderPanel(
+                                                    'gitee', 
+                                                    t.provider_gitee, 
+                                                    'bg-red-500',
+                                                    renderTokenInput(
+                                                        giteeToken,
+                                                        handleGiteeTokenChange,
+                                                        showGiteeToken,
+                                                        () => setShowGiteeToken(!showGiteeToken),
+                                                        giteeStats,
+                                                        '...,...',
+                                                        t.giteeTokenHelp,
+                                                        t.giteeTokenLink,
+                                                        t.giteeTokenHelpEnd,
+                                                        "https://ai.gitee.com/dashboard/settings/tokens"
+                                                    )
+                                                )}
+
+                                                {renderProviderPanel(
+                                                    'modelscope', 
+                                                    t.provider_modelscope, 
+                                                    'bg-blue-500',
+                                                    renderTokenInput(
+                                                        msToken,
+                                                        handleMsTokenChange,
+                                                        showMsToken,
+                                                        () => setShowMsToken(!showMsToken),
+                                                        msStats,
+                                                        'ms-...,ms-...',
+                                                        t.msTokenHelp,
+                                                        t.msTokenLink,
+                                                        t.msTokenHelpEnd,
+                                                        "https://modelscope.cn/my/myaccesstoken"
+                                                    )
+                                                )}
+                                            </>
                                         )}
 
-                                        {/* Gitee Token */}
-                                        {provider === 'gitee' && (
+                                        {/* Custom Providers List - Only show if mode supports it */}
+                                        {showCustomProviders && (
                                             <div>
-                                                <label className="flex items-center gap-2 text-xs font-medium text-white/80 mb-2">
-                                                    <KeyRound className="w-3.5 h-3.5 text-red-500" />
-                                                    {t.giteeToken}
-                                                </label>
-                                                <div className="relative group">
-                                                    <input
-                                                        type={showGiteeToken ? "text" : "password"}
-                                                        value={giteeToken}
-                                                        onChange={handleGiteeTokenChange}
-                                                        onPaste={handleGiteePaste}
-                                                        placeholder="...,..."
-                                                        className="w-full pl-4 pr-10 py-2.5 bg-white/[0.03] border border-white/10 rounded-xl text-white placeholder:text-white/20 focus:outline-0 focus:ring-4 focus:ring-red-500/10 focus:border-red-500/50 hover:border-white/20 transition-all duration-300 ease-out font-mono text-xs"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setShowGiteeToken(!showGiteeToken)}
-                                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
-                                                    >
-                                                        {showGiteeToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                                    </button>
+                                                <div>
+                                                    {customProviders.map(cp => renderProviderPanel(
+                                                        cp.id,
+                                                        cp.name,
+                                                        'bg-purple-500',
+                                                        (
+                                                            <div className="space-y-4">
+                                                                {/* Name */}
+                                                                <div className="space-y-2">
+                                                                    <label className="text-xs font-medium text-white/60">{t.provider_name}</label>
+                                                                    <input 
+                                                                        type="text"
+                                                                        value={cp.name}
+                                                                        onChange={(e) => handleUpdateCustomProvider(cp.id, { name: e.target.value })}
+                                                                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50"
+                                                                    />
+                                                                </div>
+                                                                {/* URL */}
+                                                                <div className="space-y-2">
+                                                                    <label className="text-xs font-medium text-white/60">{t.api_url}</label>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <input 
+                                                                            type="text"
+                                                                            value={cp.apiUrl}
+                                                                            onChange={(e) => handleUpdateCustomProvider(cp.id, { apiUrl: e.target.value })}
+                                                                            className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono"
+                                                                        />
+                                                                        <button
+                                                                            onClick={() => handleRefreshCustomModels(cp.id)}
+                                                                            disabled={refreshingProviders[cp.id]}
+                                                                            className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                                                                                refreshingProviders[cp.id] 
+                                                                                ? 'bg-white/5 text-white/40 border-white/5 cursor-not-allowed' 
+                                                                                : 'bg-white/10 text-white/80 border-white/10 hover:bg-white/20'
+                                                                            }`}
+                                                                            title={t.get_models || "Update Models"}
+                                                                        >
+                                                                            {refreshingProviders[cp.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                {/* Token */}
+                                                                <div className="space-y-2">
+                                                                    <label className="text-xs font-medium text-white/60">{t.api_token}</label>
+                                                                    <input 
+                                                                        type="password"
+                                                                        value={cp.token || ''}
+                                                                        onChange={(e) => handleUpdateCustomProvider(cp.id, { token: e.target.value })}
+                                                                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono"
+                                                                    />
+                                                                </div>
+                                                                
+                                                                {/* Stats & Delete */}
+                                                                <div className="flex items-center justify-between">
+                                                                     <div className={`text-xs transition-colors duration-300 flex items-center gap-1.5 ${refreshSuccessProviders[cp.id] ? 'text-green-400 font-medium' : 'text-white/40'}`}>
+                                                                        {refreshSuccessProviders[cp.id] && <Check className="w-3 h-3" />}
+                                                                        {t.models_count.replace('{count}', (
+                                                                            (cp.models.generate?.length || 0) + 
+                                                                            (cp.models.edit?.length || 0) + 
+                                                                            (cp.models.video?.length || 0) + 
+                                                                            (cp.models.text?.length || 0)
+                                                                        ))}
+                                                                     </div>
+                                                                     <button 
+                                                                        onClick={() => handleDeleteCustomProvider(cp.id)}
+                                                                        className="p-2 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                                        title={t.delete || "Delete"}
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    ))}
+
+                                                    {/* Add Provider as Collapsible Panel */}
+                                                    {showAddCustomProvider && renderProviderPanel(
+                                                        'add_custom',
+                                                        t.add_provider,
+                                                        'bg-white/20',
+                                                        (
+                                                            <div className="space-y-4">
+                                                                <div className="space-y-2">
+                                                                    <label className="text-xs font-medium text-white/60">
+                                                                        {t.provider_name} <span className="text-white/30">({t.seedOptional})</span>
+                                                                    </label>
+                                                                    <input 
+                                                                        type="text"
+                                                                        value={newProviderName}
+                                                                        onChange={e => setNewProviderName(e.target.value)}
+                                                                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50"
+                                                                    />
+                                                                </div>
+                                                                <div className="space-y-2">
+                                                                    <label className="text-xs font-medium text-white/60">{t.api_url}</label>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <input 
+                                                                            type="text"
+                                                                            value={newProviderUrl}
+                                                                            onChange={e => setNewProviderUrl(e.target.value)}
+                                                                            className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono"
+                                                                            placeholder="https://example.com/api"
+                                                                        />
+                                                                        <button
+                                                                            onClick={handleFetchModels}
+                                                                            disabled={!newProviderUrl || fetchStatus === 'loading'}
+                                                                            className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                                                                                fetchStatus === 'success' 
+                                                                                ? 'bg-green-500/20 text-green-400 border-green-500/30' 
+                                                                                : fetchStatus === 'failed'
+                                                                                ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                                                                                : 'bg-white/10 text-white/80 border-white/10 hover:bg-white/20'
+                                                                            }`}
+                                                                        >
+                                                                            {fetchStatus === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
+                                                                            {fetchStatus === 'loading' ? t.fetch_status_loading : (fetchStatus === 'success' ? t.fetch_status_success : (fetchStatus === 'failed' ? t.fetch_status_failed : t.get_models))}
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="space-y-2">
+                                                                    <label className="text-xs font-medium text-white/60">{t.api_token}</label>
+                                                                    <input 
+                                                                        type="password"
+                                                                        value={newProviderToken}
+                                                                        onChange={e => setNewProviderToken(e.target.value)}
+                                                                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono"
+                                                                    />
+                                                                </div>
+
+                                                                {fetchedModels && (
+                                                                    <div className="p-3 bg-white/5 rounded-lg text-xs text-green-400 border border-green-500/20 flex items-center gap-2">
+                                                                        <Check className="w-3 h-3" />
+                                                                        {t.models_count.replace('{count}', (
+                                                                            (fetchedModels.generate?.length || 0) + 
+                                                                            (fetchedModels.edit?.length || 0) + 
+                                                                            (fetchedModels.video?.length || 0) + 
+                                                                            (fetchedModels.text?.length || 0)
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+
+                                                                <div className="flex justify-between">
+                                                                    <button
+                                                                        onClick={handleClearAddForm}
+                                                                        className="p-2 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                                        title={t.cancel || "Clear"}
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={handleAddCustomProvider}
+                                                                        disabled={!newProviderUrl || !fetchedModels}
+                                                                        className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                    >
+                                                                        {t.confirm}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    )}
                                                 </div>
-                                                
-                                                {giteeStats.total > 1 && (
-                                                    <div className="mt-3 grid grid-cols-3 gap-2">
-                                                        <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.06] flex flex-col items-center">
-                                                            <span className="text-[10px] uppercase text-white/40 font-bold tracking-wider">{t.tokenTotal}</span>
-                                                            <div className="flex items-center gap-1.5 text-white/90 font-mono text-xs font-medium">
-                                                                <Database className="w-3 h-3" />
-                                                                {giteeStats.total}
-                                                            </div>
-                                                        </div>
-                                                        <div className="bg-green-500/5 rounded-lg p-2.5 border border-green-500/10 flex flex-col items-center">
-                                                            <span className="text-[10px] uppercase text-green-400/60 font-bold tracking-wider">{t.tokenActive}</span>
-                                                            <div className="flex items-center gap-1.5 text-green-400 font-mono text-xs font-medium">
-                                                                <ShieldCheck className="w-3 h-3" />
-                                                                {giteeStats.active}
-                                                            </div>
-                                                        </div>
-                                                        <div className="bg-red-500/5 rounded-lg p-2.5 border border-red-500/10 flex flex-col items-center">
-                                                            <span className="text-[10px] uppercase text-red-400/60 font-bold tracking-wider">{t.tokenExhausted}</span>
-                                                            <div className="flex items-center gap-1.5 text-red-400 font-mono text-xs font-medium">
-                                                                <ShieldAlert className="w-3 h-3" />
-                                                                {giteeStats.exhausted}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                <p className="mt-2 text-[10px] text-white/40 leading-relaxed pl-1">
-                                                    {t.giteeTokenHelp} <a className="text-red-500 hover:text-red-400 underline decoration-red-500/30 underline-offset-2 transition-colors" href="https://ai.gitee.com/dashboard/settings/tokens" target="_blank">{t.giteeTokenLink}</a> {t.giteeTokenHelpEnd}
-                                                </p>
-                                            </div>
-                                        )}
-
-                                        {/* Model Scope Token */}
-                                        {provider === 'modelscope' && (
-                                            <div>
-                                                <label className="flex items-center gap-2 text-xs font-medium text-white/80 mb-2">
-                                                    <KeyRound className="w-3.5 h-3.5 text-blue-500" />
-                                                    {t.msToken}
-                                                </label>
-                                                <div className="relative group">
-                                                    <input
-                                                        type={showMsToken ? "text" : "password"}
-                                                        value={msToken}
-                                                        onChange={handleMsTokenChange}
-                                                        onPaste={handleMsPaste}
-                                                        placeholder="...,..."
-                                                        className="w-full pl-4 pr-10 py-2.5 bg-white/[0.03] border border-white/10 rounded-xl text-white placeholder:text-white/20 focus:outline-0 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500/50 hover:border-white/20 transition-all duration-300 ease-out font-mono text-xs"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setShowMsToken(!showMsToken)}
-                                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5"
-                                                    >
-                                                        {showMsToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                                    </button>
-                                                </div>
-                                                
-                                                {msStats.total > 1 && (
-                                                    <div className="mt-3 grid grid-cols-3 gap-2">
-                                                        <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.06] flex flex-col items-center">
-                                                            <span className="text-[10px] uppercase text-white/40 font-bold tracking-wider">{t.tokenTotal}</span>
-                                                            <div className="flex items-center gap-1.5 text-white/90 font-mono text-xs font-medium">
-                                                                <Database className="w-3 h-3" />
-                                                                {msStats.total}
-                                                            </div>
-                                                        </div>
-                                                        <div className="bg-green-500/5 rounded-lg p-2.5 border border-green-500/10 flex flex-col items-center">
-                                                            <span className="text-[10px] uppercase text-green-400/60 font-bold tracking-wider">{t.tokenActive}</span>
-                                                            <div className="flex items-center gap-1.5 text-green-400 font-mono text-xs font-medium">
-                                                                <ShieldCheck className="w-3 h-3" />
-                                                                {msStats.active}
-                                                            </div>
-                                                        </div>
-                                                        <div className="bg-red-500/5 rounded-lg p-2.5 border border-red-500/10 flex flex-col items-center">
-                                                            <span className="text-[10px] uppercase text-red-400/60 font-bold tracking-wider">{t.tokenExhausted}</span>
-                                                            <div className="flex items-center gap-1.5 text-red-400 font-mono text-xs font-medium">
-                                                                <ShieldAlert className="w-3 h-3" />
-                                                                {msStats.exhausted}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                <p className="mt-2 text-[10px] text-white/40 leading-relaxed pl-1">
-                                                    {t.msTokenHelp} <a className="text-blue-500 hover:text-blue-400 underline decoration-blue-500/30 underline-offset-2 transition-colors" href="https://modelscope.cn/my/myaccesstoken" target="_blank">{t.msTokenLink}</a> {t.msTokenHelpEnd}
-                                                </p>
                                             </div>
                                         )}
                                     </div>
                                 )}
 
-                                {/* Tab 2: Prompt */}
-                                {tab.id === 'prompt' && (
-                                    <div className="space-y-7">
-                                        {/* Optimization Model */}
-                                        <div className="flex justify-between gap-2">
-                                            <label className="flex items-center gap-2 text-sm font-medium text-white/80 mb-2.5">
-                                                <Brain className="w-4 h-4 text-cyan-400" />
-                                                {t.optimizationModel}
-                                            </label>
-                                            <div className="relative group w-2/3">
-                                                <input 
-                                                    type="text"
-                                                    value={optimModel}
-                                                    onChange={(e) => setOptimModel(e.target.value)}
-                                                    placeholder={DEFAULT_OPTIMIZATION_MODELS[provider]}
-                                                    className="w-full px-4 py-3 bg-white/[0.03] border border-white/10 rounded-xl text-white placeholder:text-white/20 focus:outline-0 focus:ring-4 focus:ring-cyan-500/10 focus:border-cyan-500/50 hover:border-white/20 transition-all duration-300 ease-out font-mono text-sm"
-                                                />
-                                            </div>
-                                        </div>
+                                {/* Tab 3: Models Selection */}
+                                {tab.id === 'models' && (
+                                    <div className="space-y-6">
+                                        {/* Creation Model */}
+                                        <Select
+                                            label={t.model_creation}
+                                            value={creationModelValue}
+                                            onChange={setCreationModelValue}
+                                            options={getCreationModelGroups()}
+                                            icon={<Sparkles className="w-4 h-4" />}
+                                            dense
+                                        />
 
+                                        {/* Edit Model */}
+                                        <Select
+                                            label={t.model_edit}
+                                            value={editModelValue}
+                                            onChange={setEditModelValue}
+                                            options={getAvailableModelGroups(EDIT_MODELS, 'edit')}
+                                            icon={<Layers className="w-4 h-4" />}
+                                            dense
+                                        />
+
+                                        {/* Live Model */}
+                                        <Select
+                                            label={t.model_live}
+                                            value={liveModelValue}
+                                            onChange={setLiveModelValue}
+                                            options={getAvailableModelGroups(LIVE_MODELS, 'video')}
+                                            icon={<Film className="w-4 h-4" />}
+                                            dense
+                                        />
+
+                                        {/* Text Model */}
+                                        <Select
+                                            label={t.model_text}
+                                            value={textModelValue}
+                                            onChange={setTextModelValue}
+                                            options={getAvailableModelGroups(TEXT_MODELS, 'text')}
+                                            icon={<Brain className="w-4 h-4" />}
+                                            dense
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Tab 4: Prompt */}
+                                {tab.id === 'prompt' && (
+                                    <div className="space-y-6">
+                                        {/* Prompt Optimization */}
                                         <div className="space-y-4">
                                             <div className="flex items-center justify-between">
                                                 <label className="flex items-center gap-2 text-sm font-medium text-white/80">
@@ -578,122 +1162,136 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                                     value={systemPrompt}
                                                     onChange={(e) => setSystemPrompt(e.target.value)}
                                                     placeholder={t.promptContent}
-                                                    className="w-full h-32 bg-white/[0.03] border border-white/10 rounded-xl p-4 text-sm text-white/80 placeholder:text-white/20 focus:outline-0 focus:ring-4 focus:ring-pink-500/10 focus:border-pink-500/50 hover:border-white/20 resize-none custom-scrollbar leading-relaxed font-mono transition-all duration-300 ease-out"
+                                                    className="w-full h-28 bg-white/[0.03] border border-white/10 rounded-xl p-4 text-sm text-white/80 placeholder:text-white/20 focus:outline-0 focus:ring-4 focus:ring-pink-500/10 focus:border-pink-500/50 hover:border-white/20 resize-none custom-scrollbar leading-relaxed font-mono transition-all duration-300 ease-out"
                                                 />
                                             </div>
+                                        </div>
 
-                                            <p className="mt-1 text-xs text-white/40 leading-relaxed pl-1">
-                                                {t.systemPromptHelp}
-                                            </p>
+                                        {/* Translation Prompt */}
+                                        <div className="space-y-4">
+                                            <div className="flex items-center justify-between pt-2">
+                                                <label className="flex items-center gap-2 text-sm font-medium text-white/80">
+                                                    <Languages className="w-4 h-4 text-blue-400" />
+                                                    {t.translationPrompt}
+                                                </label>
+                                                
+                                                <button
+                                                    onClick={handleRestoreTranslationDefault}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white bg-white/5 hover:bg-white/10 transition-colors border border-transparent hover:border-white/10"
+                                                    title={t.restoreDefault}
+                                                >
+                                                    <RotateCcw className="w-3.5 h-3.5" />
+                                                    {t.restoreDefault}
+                                                </button>
+                                            </div>
+
+                                            <div className="relative group">
+                                                <textarea 
+                                                    value={translationPrompt}
+                                                    onChange={(e) => setTranslationPrompt(e.target.value)}
+                                                    placeholder={t.promptContent}
+                                                    className="w-full h-28 bg-white/[0.03] border border-white/10 rounded-xl p-4 text-sm text-white/80 placeholder:text-white/20 focus:outline-0 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500/50 hover:border-white/20 resize-none custom-scrollbar leading-relaxed font-mono transition-all duration-300 ease-out"
+                                                />
+                                            </div>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Tab 3: Live Settings */}
+                                {/* Tab 5: Live Settings */}
                                 {tab.id === 'live' && (
                                     <div className="space-y-6">
-                                        {provider === 'modelscope' ? (
-                                            <div className="flex flex-col items-center justify-center h-full text-white/40 space-y-4 pt-10">
-                                                <Film className="w-12 h-12 opacity-50" />
-                                                <p>{t.liveNotSupported}</p>
+                                        <div className="space-y-4">
+                                            <div className="flex items-center justify-between">
+                                                <label className="flex items-center gap-2 text-sm font-medium text-white/80">
+                                                    <MessageSquare className="w-4 h-4 text-purple-400" />
+                                                    {t.videoPrompt}
+                                                </label>
+                                                <button
+                                                    onClick={handleRestoreVideoDefaults}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white bg-white/5 hover:bg-white/10 transition-colors border border-transparent hover:border-white/10"
+                                                >
+                                                    <RotateCcw className="w-3.5 h-3.5" />
+                                                    {t.restoreDefault}
+                                                </button>
                                             </div>
-                                        ) : (
-                                            <div className="space-y-6">
-                                                {/* Video Prompt */}
-                                                <div className="space-y-4">
-                                                    <div className="flex items-center justify-between">
-                                                        <label className="flex items-center gap-2 text-sm font-medium text-white/80">
-                                                            <MessageSquare className="w-4 h-4 text-purple-400" />
-                                                            {t.videoPrompt}
-                                                        </label>
-                                                        <button
-                                                            onClick={handleRestoreVideoDefaults}
-                                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white bg-white/5 hover:bg-white/10 transition-colors border border-transparent hover:border-white/10"
-                                                        >
-                                                            <RotateCcw className="w-3.5 h-3.5" />
-                                                            {t.restoreDefault}
-                                                        </button>
-                                                    </div>
-                                                    <textarea 
-                                                        value={videoSettings.prompt}
-                                                        onChange={(e) => setVideoSettings({ ...videoSettings, prompt: e.target.value })}
-                                                        className="w-full h-24 bg-white/[0.03] border border-white/10 rounded-xl p-4 text-sm text-white/90 placeholder:text-white/20 focus:outline-0 focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500/50 hover:border-white/20 resize-none custom-scrollbar leading-relaxed font-mono transition-all duration-300 ease-out"
+                                            <textarea 
+                                                value={videoSettings.prompt}
+                                                onChange={(e) => setVideoSettings({ ...videoSettings, prompt: e.target.value })}
+                                                className="w-full h-24 bg-white/[0.03] border border-white/10 rounded-xl p-4 text-sm text-white/90 placeholder:text-white/20 focus:outline-0 focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500/50 hover:border-white/20 resize-none custom-scrollbar leading-relaxed font-mono transition-all duration-300 ease-out"
+                                            />
+                                        </div>
+
+                                        <div className="space-y-6">
+                                            {/* Duration */}
+                                            <div className="flex items-center justify-between gap-4">
+                                                <label className="flex items-center gap-2 text-sm font-medium text-white/80 min-w-[6rem]">
+                                                    <Clock className="w-4 h-4 text-blue-400" />
+                                                    {t.videoDuration}
+                                                </label>
+                                                <div className="flex flex-1 items-center gap-3">
+                                                    <input
+                                                        type="range"
+                                                        min="0.5"
+                                                        max="5"
+                                                        step="0.5"
+                                                        value={videoSettings.duration}
+                                                        onChange={(e) => setVideoSettings({ ...videoSettings, duration: Number(e.target.value) })}
+                                                        className="custom-range text-blue-500 flex-1"
                                                     />
-                                                </div>
-
-                                                <div className="space-y-6">
-                                                    {/* Duration */}
-                                                    <div className="flex items-center justify-between gap-4">
-                                                        <label className="flex items-center gap-2 text-sm font-medium text-white/80 min-w-[6rem]">
-                                                            <Clock className="w-4 h-4 text-blue-400" />
-                                                            {t.videoDuration}
-                                                        </label>
-                                                        <div className="flex flex-1 items-center gap-3">
-                                                            <input
-                                                                type="range"
-                                                                min="0.5"
-                                                                max="5"
-                                                                step="0.5"
-                                                                value={videoSettings.duration}
-                                                                onChange={(e) => setVideoSettings({ ...videoSettings, duration: Number(e.target.value) })}
-                                                                className="custom-range text-blue-500 flex-1"
-                                                            />
-                                                            <span className="text-xs font-mono text-white/50 bg-white/5 px-2 py-0.5 rounded min-w-[3.5rem] text-center">
-                                                                {videoSettings.duration} {t.seconds}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Steps */}
-                                                    <div className="flex items-center justify-between gap-4">
-                                                        <label className="flex items-center gap-2 text-sm font-medium text-white/80 min-w-[6rem]">
-                                                            <Layers className="w-4 h-4 text-green-400" />
-                                                            {t.videoSteps}
-                                                        </label>
-                                                        <div className="flex flex-1 items-center gap-3">
-                                                            <input
-                                                                type="range"
-                                                                min="1"
-                                                                max="30"
-                                                                step="1"
-                                                                value={videoSettings.steps}
-                                                                onChange={(e) => setVideoSettings({ ...videoSettings, steps: Number(e.target.value) })}
-                                                                className="custom-range text-green-500 flex-1"
-                                                            />
-                                                            <span className="text-xs font-mono text-white/50 bg-white/5 px-2 py-0.5 rounded min-w-[2rem] text-center">
-                                                                {videoSettings.steps}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Guidance */}
-                                                    <div className="flex items-center justify-between gap-4">
-                                                        <label className="flex items-center gap-2 text-sm font-medium text-white/80 min-w-[6rem]">
-                                                            <Sparkles className="w-4 h-4 text-yellow-400" />
-                                                            {t.videoGuidance}
-                                                        </label>
-                                                        <div className="flex flex-1 items-center gap-3">
-                                                            <input
-                                                                type="range"
-                                                                min="0"
-                                                                max="10"
-                                                                step="1"
-                                                                value={videoSettings.guidance}
-                                                                onChange={(e) => setVideoSettings({ ...videoSettings, guidance: Number(e.target.value) })}
-                                                                className="custom-range text-yellow-500 flex-1"
-                                                            />
-                                                            <span className="text-xs font-mono text-white/50 bg-white/5 px-2 py-0.5 rounded min-w-[2rem] text-center">
-                                                                {videoSettings.guidance}
-                                                            </span>
-                                                        </div>
-                                                    </div>
+                                                    <span className="text-xs font-mono text-white/50 bg-white/5 px-2 py-0.5 rounded min-w-[3.5rem] text-center">
+                                                        {videoSettings.duration} {t.seconds}
+                                                    </span>
                                                 </div>
                                             </div>
-                                        )}
+
+                                            {/* Steps */}
+                                            <div className="flex items-center justify-between gap-4">
+                                                <label className="flex items-center gap-2 text-sm font-medium text-white/80 min-w-[6rem]">
+                                                    <Layers className="w-4 h-4 text-green-400" />
+                                                    {t.videoSteps}
+                                                </label>
+                                                <div className="flex flex-1 items-center gap-3">
+                                                    <input
+                                                        type="range"
+                                                        min="1"
+                                                        max="30"
+                                                        step="1"
+                                                        value={videoSettings.steps}
+                                                        onChange={(e) => setVideoSettings({ ...videoSettings, steps: Number(e.target.value) })}
+                                                        className="custom-range text-green-500 flex-1"
+                                                    />
+                                                    <span className="text-xs font-mono text-white/50 bg-white/5 px-2 py-0.5 rounded min-w-[2rem] text-center">
+                                                        {videoSettings.steps}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Guidance */}
+                                            <div className="flex items-center justify-between gap-4">
+                                                <label className="flex items-center gap-2 text-sm font-medium text-white/80 min-w-[6rem]">
+                                                    <Sparkles className="w-4 h-4 text-yellow-400" />
+                                                    {t.videoGuidance}
+                                                </label>
+                                                <div className="flex flex-1 items-center gap-3">
+                                                    <input
+                                                        type="range"
+                                                        min="0"
+                                                        max="10"
+                                                        step="1"
+                                                        value={videoSettings.guidance}
+                                                        onChange={(e) => setVideoSettings({ ...videoSettings, guidance: Number(e.target.value) })}
+                                                        className="custom-range text-yellow-500 flex-1"
+                                                    />
+                                                    <span className="text-xs font-mono text-white/50 bg-white/5 px-2 py-0.5 rounded min-w-[2rem] text-center">
+                                                        {videoSettings.guidance}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 
-                                {/* Tab 4: Cloud Storage (S3) */}
+                                {/* Tab 6: Cloud Storage (S3) */}
                                 {tab.id === 's3' && (
                                      <div className="space-y-6">
                                         <div className="space-y-4">
@@ -820,7 +1418,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                     </div>
                                 )}
 
-                                {/* Tab 5: WebDAV Storage */}
+                                {/* Tab 7: WebDAV Storage */}
                                 {tab.id === 'webdav' && (
                                      <div className="space-y-6">
                                         <div className="space-y-4">

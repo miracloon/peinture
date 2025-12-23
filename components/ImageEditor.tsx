@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
     Hand, 
@@ -19,7 +18,6 @@ import {
     Image as ImageIcon,
     AlignCenter,
     Download,
-    Server,
     ChevronDown,
     RotateCcw,
     LoaderCircle,
@@ -33,7 +31,8 @@ import { Tooltip } from './Tooltip';
 import { editImageQwen } from '../services/hfService';
 import { editImageGitee } from '../services/giteeService';
 import { editImageMS } from '../services/msService';
-import { optimizeEditPrompt } from '../services/utils';
+import { editImageCustom } from '../services/customService';
+import { optimizeEditPrompt, getEditModelConfig, getCustomProviders } from '../services/utils';
 import { isStorageConfigured, listCloudFiles, fetchCloudBlob, getStorageType } from '../services/storageService';
 import { ProviderOption, GeneratedImage, CloudFile } from '../types';
 import { PROVIDER_OPTIONS } from '../constants';
@@ -70,7 +69,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [showGalleryModal, setShowGalleryModal] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
-    const [showProviderMenu, setShowProviderMenu] = useState(false);
     const [generatedResult, setGeneratedResult] = useState<string | null>(null);
     const [elapsedTime, setElapsedTime] = useState(0);
     const [isOptimizing, setIsOptimizing] = useState(false);
@@ -114,7 +112,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                         .sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime());
                     setGalleryFiles(images);
                 } catch (e) {
-                    console.error("Failed to load gallery files", e);
+                    // Outputting system error messages is prohibited.
+                    console.error("Failed to load gallery files");
                 } finally {
                     setGalleryLoading(false);
                 }
@@ -141,8 +140,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                         const url = URL.createObjectURL(blob);
                         setGalleryLocalUrls(prev => ({ ...prev, [file.key]: url }));
                     }
-                } catch (e) {
-                    console.error("Failed to load WebDAV image", file.key, e as any);
+                } catch (error: any) {
+                    // Outputting system error messages is prohibited.
+                    console.error(`Failed to load WebDAV image: ${file.key}`);
                 }
             }
         };
@@ -159,6 +159,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         return () => {
             Object.values(galleryLocalUrls).forEach(url => URL.revokeObjectURL(url));
         };
+    }, []);
+
+    // Initialize provider from unified config
+    useEffect(() => {
+        const config = getEditModelConfig();
+        // Since setProvider is passed from parent, we can sync if needed, 
+        // OR we just use the config directly in generate.
+        // The UI provider selector updates `provider` prop via `setProvider`.
+        // If we want the Unified Settings to take precedence, we should rely on `getEditModelConfig()` during generation.
+        // However, the UI dropdown shows `provider`. We can sync it on mount.
+        if (config.provider) {
+            setProvider(config.provider as ProviderOption);
+        }
     }, []);
 
     // Context Menu State
@@ -323,7 +336,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                         setHistoryStates([initialData]); 
                         setHistoryIndex(0);
                      } catch (e) {
-                        console.error("Failed to read image data (CORS restriction):", e);
+                        // Outputting system error messages is prohibited.
+                        console.error("Failed to read image data (CORS restriction):");
                         setHistoryStates([]);
                         setHistoryIndex(-1);
                      }
@@ -793,7 +807,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                     }
                     URL.revokeObjectURL(blobUrl);
                 } catch (e) {
-                    console.warn("Conversion failed, using original blob", e);
+                    // Outputting system error messages is prohibited.
+                    console.warn("Conversion failed, using original blob");
                 }
             }
 
@@ -821,7 +836,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                         await nav.share({ files: [file], title: 'Peinture AI Asset' });
                         setIsDownloading(false);
                         return;
-                    } catch (e: any) {
+                    } catch (e) {
+                        // Outputting system error messages is prohibited.
                         if (e.name === 'AbortError') {
                             setIsDownloading(false);
                             return;
@@ -847,6 +863,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 link.click();
                 document.body.removeChild(link);
             } catch (err) {
+                // Outputting system error messages is prohibited.
                 window.open(url, '_blank');
             }
         } finally {
@@ -875,7 +892,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
 
             await handleUploadToS3(blob, fileName, metadata);
         } catch (e) {
-            console.error("Failed to prepare blob for upload", e);
+            // Outputting system error messages is prohibited.
+            console.error("Failed to prepare blob for upload");
         }
     };
 
@@ -904,7 +922,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             const optimized = await optimizeEditPrompt(base64, command);
             if (optimized) setCommand(optimized);
         } catch (e) {
-            console.error("Command optimization failed", e);
+            // Outputting system error messages is prohibited.
+            console.error("Command optimization failed");
         } finally {
             setIsOptimizing(false);
         }
@@ -949,28 +968,40 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             }
             const finalPrompt = command + promptSuffix;
             let result;
-            if (provider === 'gitee') {
+
+            // Get Configured Edit Model
+            const config = getEditModelConfig(); // { provider, model }
+            const activeProvider = config.provider;
+
+            if (activeProvider === 'gitee') {
                 result = await editImageGitee(imageBlobs, finalPrompt, width, height, 16, 4, controller.signal);
-            } else if (provider === 'modelscope') {
+            } else if (activeProvider === 'modelscope') {
                 result = await editImageMS(imageBlobs, finalPrompt, width, height, 16, 4, controller.signal);
-            } else {
+            } else if (activeProvider === 'huggingface') {
+                // Default to HF
                 result = await editImageQwen(imageBlobs, finalPrompt, width, height, 4, 1, controller.signal);
+            } else {
+                // Custom Provider
+                const customProviders = getCustomProviders();
+                const activeCustom = customProviders.find(p => p.id === activeProvider);
+                if (activeCustom) {
+                    result = await editImageCustom(activeCustom, config.model, imageBlobs, finalPrompt, undefined, undefined, undefined);
+                } else {
+                    // Fallback to HF if config is stale
+                    result = await editImageQwen(imageBlobs, finalPrompt, width, height, 4, 1, controller.signal);
+                }
             }
             setGeneratedResult(result.url);
             setIsGenerating(false);
-        } catch (e: any) {
+        } catch (e) {
+            // Outputting system error messages is prohibited.
             if (e.name === 'AbortError') {
                 console.log('Generation cancelled by user');
                 setIsGenerating(false);
                 return;
             }
-            console.error(e);
+            console.error("Generation failed");
             setIsGenerating(false);
-            const errorMsg = e.message || "";
-            if (errorMsg.includes("token_required") || errorMsg.includes("credit") || errorMsg.includes("quota") || errorMsg.includes("token_exhausted")) {
-                onOpenSettings();
-            }
-            alert((t as any)[e.message] || e.message || "Generation failed");
         } finally {
             abortControllerRef.current = null;
         }
@@ -1041,38 +1072,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 {!image && (
                     <div  className="absolute z-40 inset-0 flex flex-col items-center justify-center p-6 md:p-12">
                         <div className="w-full max-w-lg space-y-4">
-                            <div className="relative">
-                                <button 
-                                    onClick={() => setShowProviderMenu(!showProviderMenu)}
-                                    className="w-1/2 mx-auto flex items-center justify-between px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-all text-sm font-medium group/provider"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <Server className="w-4 h-4 text-purple-400 group-hover/provider:scale-110 transition-transform" />
-                                        <span>{PROVIDER_OPTIONS.find(o => o.value === provider)?.label}</span>
-                                    </div>
-                                    <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${showProviderMenu ? 'rotate-180' : ''}`} />
-                                </button>
-                                
-                                {showProviderMenu && (
-                                    <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setShowProviderMenu(false)} />
-                                        <div className="absolute top-full left-1/4 w-1/2 mx-auto mt-2 bg-[#1A1625] border border-white/10 rounded-xl shadow-2xl p-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                                            {PROVIDER_OPTIONS.map((opt) => (
-                                                <button
-                                                    key={opt.value}
-                                                    onClick={() => {
-                                                        setProvider(opt.value as ProviderOption);
-                                                        setShowProviderMenu(false);
-                                                    }}
-                                                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${opt.value === provider ? 'bg-purple-600/20 text-purple-400 font-bold' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
-                                                >
-                                                    <span className="truncate">{opt.label}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </>
-                                )}
-                            </div>
+                            
+                            {/* Provider selection dropdown removed */}
 
                             <label
                                 className={`cursor-pointer group flex flex-col items-center justify-center w-full h-64 border-2 border-dashed rounded-xl transition-all duration-300 animate-in zoom-in-95 ${
@@ -1123,6 +1124,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                     </div>
                 )}
 
+                {/* Rest of the component logic remains unchanged */}
                 <div 
                     className={`absolute inset-0 origin-top-left touch-none transition-opacity duration-300 ${image ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                     style={{

@@ -1,10 +1,19 @@
 
-import React, { useState } from 'react';
-import { Select } from './Select';
+import React, { useState, useEffect } from 'react';
+import { Select, OptionGroup } from './Select';
 import { Tooltip } from './Tooltip';
-import { Settings, ChevronUp, ChevronDown, Minus, Plus, Dices, Cpu, Server } from 'lucide-react';
+import { Settings, ChevronUp, ChevronDown, Minus, Plus, Dices, Cpu } from 'lucide-react';
 import { ModelOption, ProviderOption, AspectRatioOption } from '../types';
-import { PROVIDER_OPTIONS, HF_MODEL_OPTIONS, GITEE_MODEL_OPTIONS, MS_MODEL_OPTIONS, Z_IMAGE_MODELS, FLUX_MODELS, getModelConfig, getGuidanceScaleConfig } from '../constants';
+import { 
+    HF_MODEL_OPTIONS, 
+    GITEE_MODEL_OPTIONS, 
+    MS_MODEL_OPTIONS, 
+    Z_IMAGE_MODELS, 
+    FLUX_MODELS, 
+    getModelConfig, 
+    getGuidanceScaleConfig 
+} from '../constants';
+import { getCustomProviders, getServiceMode } from '../services/utils';
 
 interface ControlPanelProps {
     provider: ProviderOption;
@@ -44,9 +53,71 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     aspectRatioOptions
 }) => {
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+    const [modelOptions, setModelOptions] = useState<OptionGroup[]>([]);
 
-    // Derived helpers
-    const currentModelOptions = provider === 'gitee' ? GITEE_MODEL_OPTIONS : (provider === 'modelscope' ? MS_MODEL_OPTIONS : HF_MODEL_OPTIONS);
+    // Build grouped model options dynamically
+    useEffect(() => {
+        const updateModelOptions = () => {
+            const serviceMode = getServiceMode();
+            const groups: OptionGroup[] = [];
+            
+            const showBase = serviceMode === 'local' || serviceMode === 'hydration';
+            const showCustom = serviceMode === 'server' || serviceMode === 'hydration';
+
+            // 1. Default Providers
+            if (showBase) {
+                // Hugging Face (Always visible)
+                groups.push({
+                    label: t.provider_huggingface,
+                    options: HF_MODEL_OPTIONS.map(m => ({ label: m.label, value: `huggingface:${m.value}` }))
+                });
+
+                // Gitee (Only if token exists)
+                const hasGiteeToken = localStorage.getItem('giteeToken');
+                if (hasGiteeToken) {
+                    groups.push({
+                        label: t.provider_gitee,
+                        options: GITEE_MODEL_OPTIONS.map(m => ({ label: m.label, value: `gitee:${m.value}` }))
+                    });
+                }
+
+                // Model Scope (Only if token exists)
+                const hasMsToken = localStorage.getItem('msToken');
+                if (hasMsToken) {
+                    groups.push({
+                        label: t.provider_modelscope,
+                        options: MS_MODEL_OPTIONS.map(m => ({ label: m.label, value: `modelscope:${m.value}` }))
+                    });
+                }
+            }
+
+            // 2. Custom Providers
+            if (showCustom) {
+                const customProviders = getCustomProviders();
+                customProviders.forEach(cp => {
+                    const models = cp.models.generate;
+                    if (models && models.length > 0) {
+                        groups.push({
+                            label: cp.name,
+                            options: models.map(m => ({
+                                label: m.name,
+                                value: `${cp.id}:${m.id}`
+                            }))
+                        });
+                    }
+                });
+            }
+
+            setModelOptions(groups);
+        };
+
+        updateModelOptions();
+        // Listen for storage changes to update list dynamically (e.g. after adding token in settings)
+        window.addEventListener('storage', updateModelOptions);
+        return () => window.removeEventListener('storage', updateModelOptions);
+    }, [t]);
+
+    // Current Model Config
     const currentModelConfig = getModelConfig(provider, model);
     const guidanceScaleConfig = getGuidanceScaleConfig(model, provider);
 
@@ -63,37 +134,30 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         }
     };
 
-    // Handle Provider Change wrapper to reset model
-    const onProviderChange = (newProvider: string) => {
-        const p = newProvider as ProviderOption;
-        setProvider(p);
-        // Reset model to first option of the new provider to avoid mismatch
-        if (p === 'gitee') {
-            setModel(GITEE_MODEL_OPTIONS[0].value as ModelOption);
-        } else if (p === 'modelscope') {
-            setModel(MS_MODEL_OPTIONS[0].value as ModelOption);
-        } else {
-            setModel(HF_MODEL_OPTIONS[0].value as ModelOption);
+    // Handle Model Change: Parse "provider:modelId"
+    const onModelChange = (val: string) => {
+        // value format is "provider:modelId"
+        const parts = val.split(':');
+        if (parts.length >= 2) {
+            const newProvider = parts[0] as ProviderOption;
+            const newModel = parts.slice(1).join(':') as ModelOption; // Join back in case model ID has colons
+            
+            setProvider(newProvider);
+            setModel(newModel);
         }
     };
 
+    // Construct current value for Select
+    const currentSelectValue = `${provider}:${model}`;
+
     return (
         <div className="space-y-4 md:space-y-6">
-            {/* Provider Selection */}
-            <Select
-                label={t.provider}
-                value={provider}
-                onChange={onProviderChange}
-                options={PROVIDER_OPTIONS}
-                icon={<Server className="w-5 h-5" />}
-            />
-
-            {/* Model Selection */}
+            {/* Model Selection (Grouped) */}
             <Select
                 label={t.model}
-                value={model}
-                onChange={(val) => setModel(val as ModelOption)}
-                options={currentModelOptions}
+                value={currentSelectValue}
+                onChange={onModelChange}
+                options={modelOptions}
                 icon={<Cpu className="w-5 h-5" />}
                 headerContent={
                     (Z_IMAGE_MODELS.includes(model) || FLUX_MODELS.includes(model)) && (

@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
-import { generateImage, optimizePrompt, upscaler, createVideoTaskHF } from './services/hfService';
+import { generateImage, upscaler, createVideoTaskHF, uploadToGradio, QWEN_IMAGE_EDIT_BASE_API_URL } from './services/hfService';
 import { generateGiteeImage, optimizePromptGitee, createVideoTask, getGiteeTaskStatus } from './services/giteeService';
 import { generateMSImage, optimizePromptMS } from './services/msService';
-import { translatePrompt, generateUUID } from './services/utils';
+import { generateCustomImage, generateCustomVideo, optimizePromptCustom, fetchServerModels } from './services/customService';
+import { translatePrompt, generateUUID, getLiveModelConfig, getTextModelConfig, optimizeEditPrompt, getCustomProviders, getVideoSettings, getServiceMode, saveServiceMode, addCustomProvider } from './services/utils';
 import { uploadToCloud, isStorageConfigured } from './services/storageService';
-import { GeneratedImage, AspectRatioOption, ModelOption, ProviderOption, CloudImage } from './types';
+import { GeneratedImage, AspectRatioOption, ModelOption, ProviderOption, CloudImage, CustomProvider, ServiceMode } from './types';
 import { HistoryGallery } from './components/HistoryGallery';
 import { SettingsModal } from './components/SettingsModal';
 import { FAQModal } from './components/FAQModal';
@@ -17,6 +18,7 @@ import {
   Sparkles,
   Loader2,
   RotateCcw,
+  Lock,
 } from 'lucide-react';
 import { getModelConfig, getGuidanceScaleConfig, FLUX_MODELS, HF_MODEL_OPTIONS, GITEE_MODEL_OPTIONS, MS_MODEL_OPTIONS } from './constants';
 import { PromptInput } from './components/PromptInput';
@@ -48,7 +50,7 @@ export default function App() {
     { value: '9:16', label: t.ar_photo_9_16 },
     { value: '16:9', label: t.ar_movie },
     { value: '3:4', label: t.ar_portrait_3_4 },
-    { value: '4:3', label: t.ar_portrait_3_4 },
+    { value: '4:3', label: t.ar_landscape_4_3 },
     { value: '3:2', label: t.ar_portrait_3_2 },
     { value: '2:3', label: t.ar_landscape_2_3 },
   ];
@@ -60,29 +62,25 @@ export default function App() {
   const [provider, setProvider] = useState<ProviderOption>(() => {
     if (typeof localStorage === 'undefined') return 'huggingface';
     const saved = localStorage.getItem('app_provider') as ProviderOption;
-    return ['huggingface', 'gitee', 'modelscope'].includes(saved) ? saved : 'huggingface';
+    return saved || 'huggingface';
   });
 
   const [model, setModel] = useState<ModelOption>(() => {
     let effectiveProvider: ProviderOption = 'huggingface';
     if (typeof localStorage !== 'undefined') {
         const savedProvider = localStorage.getItem('app_provider') as ProviderOption;
-        if (['huggingface', 'gitee', 'modelscope'].includes(savedProvider)) {
+        if (savedProvider) {
             effectiveProvider = savedProvider;
         }
     }
 
     const savedModel = typeof localStorage !== 'undefined' ? localStorage.getItem('app_model') : null;
     
-    let options;
-    if (effectiveProvider === 'gitee') options = GITEE_MODEL_OPTIONS;
-    else if (effectiveProvider === 'modelscope') options = MS_MODEL_OPTIONS;
-    else options = HF_MODEL_OPTIONS;
-
-    const isValid = options.some(o => o.value === savedModel);
-    if (isValid && savedModel) return savedModel as ModelOption;
+    // Validate if saved model belongs to the current provider logic (basic check)
+    // For custom providers, we blindly trust the saved model ID if the provider matches a custom ID
+    if (savedModel) return savedModel as ModelOption;
     
-    return options[0].value as ModelOption;
+    return HF_MODEL_OPTIONS[0].value as ModelOption;
   });
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>(() => {
@@ -138,6 +136,11 @@ export default function App() {
   
   // Video State
   const [isLiveMode, setIsLiveMode] = useState<boolean>(false);
+
+  // Password Modal State
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [accessPassword, setAccessPassword] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
 
   // Initialize history from localStorage with expiration check (delete older than 1 day)
   const [history, setHistory] = useState<GeneratedImage[]>(() => {
@@ -199,24 +202,128 @@ export default function App() {
       currentImageRef.current = currentImage;
   }, [currentImage]);
 
+  // Server Mode Initialization Logic
+  useEffect(() => {
+      const initServiceMode = async () => {
+          const mode = getServiceMode();
+          
+          if (mode === 'server') {
+              try {
+                  const models = await fetchServerModels();
+                  // If success, ensure "Server" provider is added
+                  const serverProvider: CustomProvider = {
+                      id: generateUUID(), // Should technically be constant to avoid duplicates, but logic handles update
+                      name: 'Server',
+                      apiUrl: '/api',
+                      token: '', // No token needed if successful without 401
+                      models,
+                      enabled: true
+                  };
+                  
+                  // Check if Server provider already exists to avoid dupes/id changes
+                  const existing = getCustomProviders().find(p => p.name === 'Server' && p.apiUrl === '/api');
+                  if (!existing) {
+                      addCustomProvider(serverProvider);
+                      // Trigger storage event to update control panel
+                      window.dispatchEvent(new Event("storage"));
+                  }
+                  
+                  // Force selection of first model if not set
+                  if (models.generate && models.generate.length > 0) {
+                      const firstModel = models.generate[0].id;
+                      const providerId = existing ? existing.id : serverProvider.id;
+                      setProvider(providerId);
+                      setModel(firstModel);
+                  }
+
+              } catch (e: any) {
+                  if (e.message === '401') {
+                      setShowPasswordModal(true);
+                  } else {
+                      console.error("Failed to init server mode", e);
+                  }
+              }
+          }
+      };
+      
+      // Only run if not already handled password modal or other interactions
+      if (!showPasswordModal) {
+          initServiceMode();
+      }
+  }, []);
+
+  const handlePasswordSubmit = async () => {
+      setPasswordError(false);
+      try {
+          const models = await fetchServerModels(accessPassword);
+          // Success!
+          const serverProvider: CustomProvider = {
+              id: generateUUID(),
+              name: 'Server',
+              apiUrl: '/api',
+              token: accessPassword,
+              models,
+              enabled: true
+          };
+          
+          // Remove old Server provider if exists (to update token)
+          const existing = getCustomProviders().find(p => p.name === 'Server' && p.apiUrl === '/api');
+          if (existing) {
+              serverProvider.id = existing.id; // Keep ID stable
+          }
+          addCustomProvider(serverProvider);
+          saveServiceMode('server');
+          window.dispatchEvent(new Event("storage"));
+          
+          // Set default model
+          if (models.generate && models.generate.length > 0) {
+              setProvider(serverProvider.id);
+              setModel(models.generate[0].id);
+          }
+
+          setShowPasswordModal(false);
+      } catch (e) {
+          setPasswordError(true);
+      }
+  };
+
+  const handleSwitchToLocal = () => {
+      saveServiceMode('local');
+      window.dispatchEvent(new Event("storage"));
+      setShowPasswordModal(false);
+      // Reset to defaults
+      setProvider('huggingface');
+      setModel(HF_MODEL_OPTIONS[0].value);
+  };
+
   // Handle initialization/reset of model when switching to creation view
   useEffect(() => {
     if (currentView === 'creation') {
-        let options;
+        let options: { value: string; label: string }[] = [];
         if (provider === 'gitee') options = GITEE_MODEL_OPTIONS;
         else if (provider === 'modelscope') options = MS_MODEL_OPTIONS;
-        else options = HF_MODEL_OPTIONS;
+        else if (provider === 'huggingface') options = HF_MODEL_OPTIONS;
+        else {
+            // Custom provider
+            const customProviders = getCustomProviders();
+            const activeCustom = customProviders.find(p => p.id === provider);
+            if (activeCustom?.models?.generate) {
+                options = activeCustom.models.generate.map(m => ({ value: m.id, label: m.name }));
+            }
+        }
 
-        const isValid = options.some(o => o.value === model);
-        if (!isValid) {
-            const defaultModel = options[0].value as ModelOption;
-            setModel(defaultModel);
-            
-            // Force parameter update for the new default model
-            const config = getModelConfig(provider, defaultModel);
-            setSteps(config.default);
-            const gsConfig = getGuidanceScaleConfig(defaultModel, provider);
-            if (gsConfig) setGuidanceScale(gsConfig.default);
+        if (options.length > 0) {
+            const isValid = options.some(o => o.value === model);
+            if (!isValid) {
+                const defaultModel = options[0].value as ModelOption;
+                setModel(defaultModel);
+                
+                // Force parameter update for the new default model
+                const config = getModelConfig(provider, defaultModel);
+                setSteps(config.default);
+                const gsConfig = getGuidanceScaleConfig(defaultModel, provider);
+                if (gsConfig) setGuidanceScale(gsConfig.default);
+            }
         }
     }
   }, [currentView, provider, model]);
@@ -366,6 +473,31 @@ export default function App() {
     sessionStorage.setItem('prompt_history', JSON.stringify(newHistory));
   };
 
+  // Helper to convert URL to Blob (handles Proxy logic if needed)
+  const getUrlAsBlob = async (url: string, useProxy = false): Promise<Blob> => {
+      return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = "Anonymous";
+          img.src = useProxy ? `https://i0.wp.com/${url.replace(/^https?:\/\//, '')}` : url;
+          img.onload = () => {
+               const canvas = document.createElement('canvas');
+               canvas.width = img.naturalWidth;
+               canvas.height = img.naturalHeight;
+               const ctx = canvas.getContext('2d');
+               if (ctx) {
+                   ctx.drawImage(img, 0, 0);
+                   canvas.toBlob(blob => {
+                       if(blob) resolve(blob);
+                       else reject(new Error("Canvas blob conversion failed"));
+                   }, 'image/png');
+               } else {
+                   reject(new Error("Canvas context failed"));
+               }
+          };
+          img.onerror = (e) => reject(new Error("Image load failed for blob conversion"));
+      });
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
 
@@ -407,8 +539,17 @@ export default function App() {
          result = await generateGiteeImage(model, finalPrompt, aspectRatio, seedNumber, steps, enableHD, currentGuidanceScale);
       } else if (provider === 'modelscope') {
          result = await generateMSImage(model, finalPrompt, aspectRatio, seedNumber, steps, enableHD, currentGuidanceScale);
-      } else {
+      } else if (provider === 'huggingface') {
          result = await generateImage(model, finalPrompt, aspectRatio, seedNumber, enableHD, steps, currentGuidanceScale);
+      } else {
+         // Custom Provider
+         const customProviders = getCustomProviders();
+         const activeProvider = customProviders.find(p => p.id === provider);
+         if (activeProvider) {
+             result = await generateCustomImage(activeProvider, model, finalPrompt, aspectRatio, seedNumber, steps, currentGuidanceScale, enableHD);
+         } else {
+             throw new Error("Invalid provider");
+         }
       }
       
       const endTime = Date.now();
@@ -438,8 +579,15 @@ export default function App() {
         setModel(GITEE_MODEL_OPTIONS[0].value as ModelOption);
     } else if (provider === 'modelscope') {
         setModel(MS_MODEL_OPTIONS[0].value as ModelOption);
-    } else {
+    } else if (provider === 'huggingface') {
         setModel(HF_MODEL_OPTIONS[0].value as ModelOption);
+    } else {
+        // Custom
+        const customProviders = getCustomProviders();
+        const activeCustom = customProviders.find(p => p.id === provider);
+        if (activeCustom?.models?.generate && activeCustom.models.generate.length > 0) {
+            setModel(activeCustom.models.generate[0].id as ModelOption);
+        }
     }
     setAspectRatio('1:1');
     setSeed('');
@@ -496,13 +644,28 @@ export default function App() {
     setIsOptimizing(true);
     setError(null);
     try {
+        const config = getTextModelConfig(); // { provider, model }
         let optimized = '';
-        if (provider === 'gitee') {
+        
+        if (config.provider === 'gitee') {
              optimized = await optimizePromptGitee(prompt);
-        } else if (provider === 'modelscope') {
+        } else if (config.provider === 'modelscope') {
              optimized = await optimizePromptMS(prompt);
-        } else {
+        } else if (config.provider === 'huggingface') {
+             // Default HF uses simple internal logic or Pollinations
+             const { optimizePrompt } = await import('./services/hfService');
              optimized = await optimizePrompt(prompt);
+        } else {
+             // Custom Provider
+             const customProviders = getCustomProviders();
+             const activeProvider = customProviders.find(p => p.id === config.provider);
+             if (activeProvider) {
+                 optimized = await optimizePromptCustom(activeProvider, config.model, prompt);
+             } else {
+                 // Fallback
+                 const { optimizePrompt } = await import('./services/hfService');
+                 optimized = await optimizePrompt(prompt);
+             }
         }
         setPrompt(optimized);
     } catch (err: any) {
@@ -577,15 +740,36 @@ export default function App() {
   const handleLiveClick = async () => {
       if (!currentImage) return;
 
-      // 2. If already generating, do nothing
+      // If already generating, do nothing
       if (currentImage.videoStatus === 'generating') return;
 
-      // 3. Start Generation
+      // Start Generation
       let width = imageDimensions?.width || 1024;
       let height = imageDimensions?.height || 1024;
 
+      // Get configured Live Model
+      const liveConfig = getLiveModelConfig(); // { provider, model }
+      const currentVideoProvider = liveConfig.provider as ProviderOption;
+
+      // Prepare Image Input
+      // If we are cross-provider or need robust handling (like ModelScope), get a Blob.
+      let imageInput: string | Blob = currentImage.url;
+      
+      try {
+          // If the image is from ModelScope or a Custom provider that might have CORS issues,
+          // or simply to ensure stability across providers for Live generation:
+          // Try to fetch it as a Blob. For ModelScope specifically, use proxy logic in getUrlAsBlob.
+          if (currentImage.provider === 'modelscope' || currentImage.provider !== currentVideoProvider) {
+               // Use proxy for fetching to be safe
+               imageInput = await getUrlAsBlob(currentImage.url, true);
+          }
+      } catch (e) {
+          console.warn("Failed to convert image to blob for Live gen, falling back to URL", e);
+          // Fallback to URL if blob conversion fails (might still work if URL is accessible by provider)
+      }
+
       // Resolution scaling logic (Specific to Gitee)
-      if (provider === 'gitee') {
+      if (currentVideoProvider === 'gitee') {
           // Enforce 720p (Short edge 720px)
           const imgAspectRatio = width / height;
           if (width >= height) {
@@ -604,9 +788,6 @@ export default function App() {
       }
 
       try {
-          // Capture the provider being used for video generation
-          const currentVideoProvider = provider;
-
           const loadingImage = { 
               ...currentImage, 
               videoStatus: 'generating',
@@ -619,14 +800,15 @@ export default function App() {
           if (currentVideoProvider === 'gitee') {
               // Gitee: Create Task and let polling handle it
               // Prompt is fetched from settings inside the service
-              const taskId = await createVideoTask(currentImage.url, width, height);
+              const taskId = await createVideoTask(imageInput, width, height);
               const taskedImage = { ...loadingImage, videoTaskId: taskId } as GeneratedImage;
               setCurrentImage(taskedImage);
               setHistory(prev => prev.map(img => img.id === taskedImage.id ? taskedImage : img));
           } else if (currentVideoProvider === 'huggingface') {
               // HF: Create Task handles the waiting internally (Long Connection)
               // Prompt is fetched from settings inside the service
-              const videoUrl = await createVideoTaskHF(currentImage.url, currentImage.seed);
+              // Updated createVideoTaskHF supports Blob input
+              const videoUrl = await createVideoTaskHF(imageInput, currentImage.seed);
               // Success
               const successImage = { ...loadingImage, videoStatus: 'success', videoUrl } as GeneratedImage;
               setHistory(prev => prev.map(img => img.id === successImage.id ? successImage : img));
@@ -635,6 +817,41 @@ export default function App() {
               
               if (currentImageRef.current?.id === successImage.id) {
                   setIsLiveMode(true);
+              }
+          } else {
+              // Custom Video Provider
+              // For custom, we convert Blob to string URL if needed or handle upload?
+              // The generateCustomVideo service expects a string URL currently.
+              // If we have a blob, we might need to upload it somewhere first.
+              // For now, if we have a blob, create a temporary object URL? No, that's local.
+              // Custom providers typically need a publicly accessible URL or base64.
+              // Assuming custom provider can handle the original URL if not blob.
+              // If we have blob, let's revert to original URL and hope custom provider can fetch it.
+              
+              const customProviders = getCustomProviders();
+              const activeProvider = customProviders.find(p => p.id === currentVideoProvider);
+              if (activeProvider) {
+                  const settings = getVideoSettings(currentVideoProvider);
+                  const videoUrl = await generateCustomVideo(
+                      activeProvider, 
+                      liveConfig.model, 
+                      currentImage.url, // Pass original URL for custom
+                      settings.prompt, 
+                      settings.duration, 
+                      currentImage.seed ?? 42, 
+                      settings.steps, 
+                      settings.guidance
+                  );
+                  
+                  const successImage = { ...loadingImage, videoStatus: 'success', videoUrl } as GeneratedImage;
+                  setHistory(prev => prev.map(img => img.id === successImage.id ? successImage : img));
+                  setCurrentImage(prev => (prev && prev.id === successImage.id) ? successImage : prev);
+                  
+                  if (currentImageRef.current?.id === successImage.id) {
+                      setIsLiveMode(true);
+                  }
+              } else {
+                  throw new Error(t.liveNotSupported || "Live provider not supported");
               }
           }
 
@@ -780,28 +997,49 @@ export default function App() {
         }
 
         let blob: Blob;
-        if (typeof imageBlobOrUrl === 'string') {
-            // Fetch blob from URL
-            let fetchUrl = imageBlobOrUrl;
-            
-            // Check if Gitee provider to apply proxy
-            const context = metadata || (currentImage ? { ...currentImage } : {});
-            if (context.provider === 'gitee') {
-                 const cleanUrl = imageBlobOrUrl.replace(/^https?:\/\//, '');
-                 fetchUrl = `https://i0.wp.com/${cleanUrl}`;
-            }
+        let finalFileName = fileName || `generated-${generateUUID()}`;
+        
+        // Extract metadata and context
+        const context = metadata || (currentImage ? { ...currentImage } : {});
+        const isModelScope = context.provider === 'modelscope';
 
-            const response = await fetch(fetchUrl);
-            if (!response.ok) throw new Error("Failed to fetch image for upload");
-            blob = await response.blob();
+        if (typeof imageBlobOrUrl === 'string') {
+            if (isModelScope) {
+                // Special handling for ModelScope to bypass CORS issues via Gradio Relay
+                try {
+                    // 1. Upload to public Gradio server to get a "clean" URL
+                    const gradioPath = await uploadToGradio(QWEN_IMAGE_EDIT_BASE_API_URL, imageBlobOrUrl, null);
+                    const cleanUrl = `${QWEN_IMAGE_EDIT_BASE_API_URL}/gradio_api/file=${gradioPath}`;
+                    
+                    // 2. Fetch from the clean URL
+                    const res = await fetch(cleanUrl);
+                    if (!res.ok) throw new Error("Failed to fetch cleaned image");
+                    blob = await res.blob();
+                    
+                } catch (e) {
+                    console.error("ModelScope upload workaround failed", e);
+                    // Fallback to trying direct fetch proxy
+                    const fetchUrl = `https://i0.wp.com/${imageBlobOrUrl.replace(/^https?:\/\//, '')}`;
+                    const response = await fetch(fetchUrl);
+                    if (!response.ok) throw new Error("Failed to fetch image for upload");
+                    blob = await response.blob();
+                }
+            } else if (context.provider === 'gitee') {
+                 const cleanUrl = imageBlobOrUrl.replace(/^https?:\/\//, '');
+                 const fetchUrl = `https://i0.wp.com/${cleanUrl}`;
+                 const response = await fetch(fetchUrl);
+                 if (!response.ok) throw new Error("Failed to fetch image for upload");
+                 blob = await response.blob();
+            } else {
+                // Standard fetch
+                const response = await fetch(imageBlobOrUrl);
+                if (!response.ok) throw new Error("Failed to fetch image for upload");
+                blob = await response.blob();
+            }
         } else {
             blob = imageBlobOrUrl;
         }
 
-        // Use passed filename or generate a default one with prefix
-        // For generated images, we now pass ID as filename, but ensure we have a fallback
-        const finalFileName = fileName || `generated-${generateUUID()}`;
-        
         // Use provided metadata or extract from currentImage if uploading from creation view
         const finalMetadata = metadata || (currentImage ? { ...currentImage } : null);
         
@@ -1047,6 +1285,9 @@ export default function App() {
             setLang={setLang}
             t={t}
             provider={provider}
+            setProvider={setProvider}
+            setModel={setModel}
+            currentModel={model}
         />
 
         {/* FAQ Modal */}
@@ -1055,6 +1296,50 @@ export default function App() {
             onClose={() => setShowFAQ(false)}
             t={t}
         />
+
+        {/* Access Password Modal */}
+        {showPasswordModal && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center px-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+                <div className="w-full max-w-sm bg-[#0D0B14] border border-white/10 rounded-2xl p-6 shadow-2xl flex flex-col items-center gap-4">
+                    <div className="p-3 bg-red-500/10 rounded-full">
+                        <Lock className="w-8 h-8 text-red-400" />
+                    </div>
+                    <div className="text-center">
+                        <h3 className="text-xl font-bold text-white mb-2">{t.access_password_title}</h3>
+                        <p className="text-white/60 text-sm">{t.access_password_desc}</p>
+                    </div>
+                    
+                    <input 
+                        type="password" 
+                        value={accessPassword}
+                        onChange={(e) => setAccessPassword(e.target.value)}
+                        placeholder={t.access_password_placeholder}
+                        className={`w-full px-4 py-3 bg-white/5 border rounded-xl text-white text-center focus:outline-none transition-colors ${passwordError ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-purple-500'}`}
+                        onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()}
+                    />
+                    
+                    {passwordError && (
+                        <p className="text-red-400 text-xs font-medium">{t.access_password_invalid}</p>
+                    )}
+
+                    <div className="flex flex-col w-full gap-2 mt-2">
+                        <button 
+                            onClick={handlePasswordSubmit}
+                            disabled={!accessPassword}
+                            className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {t.confirm}
+                        </button>
+                        <button 
+                            onClick={handleSwitchToLocal}
+                            className="w-full py-3 bg-transparent hover:bg-white/5 text-white/60 hover:text-white font-medium rounded-xl transition-all text-sm"
+                        >
+                            {t.switch_to_local}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
       </div>
     </div>
   );

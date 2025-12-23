@@ -1,6 +1,7 @@
 
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
 import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel, getVideoSettings } from "./utils";
+import { API_MODEL_MAP } from "../constants";
 
 const GITEE_GENERATE_API_URL = "https://ai.gitee.com/v1/images/generations";
 const GITEE_EDIT_API_URL = "https://ai.gitee.com/v1/images/edits";
@@ -146,7 +147,7 @@ const getDimensions = (ratio: AspectRatioOption, enableHD: boolean, model: Model
   if (!enableHD) return base;
 
   let multiplier = 2; // Default multiplier for Z-Image Turbo
-  if (['flux-1-schnell', 'FLUX_1-Krea-dev', 'FLUX.1-dev', 'FLUX.2-dev'].includes(model)) {
+  if (['flux-1-schnell', 'flux-1-krea', 'flux-1', 'flux-2'].includes(model)) {
       multiplier = 1.5;
   }
 
@@ -172,11 +173,17 @@ export const generateGiteeImage = async (
   // Default steps logic handled in App.tsx, but good to have fallback here
   const finalSteps = steps ?? 9; 
 
+  // Get the actual API model string from the map
+  const apiModel = API_MODEL_MAP.gitee[model];
+  if (!apiModel) {
+      throw new Error(`Model ${model} not supported on Gitee AI`);
+  }
+
   return runWithGiteeTokenRetry(async (token) => {
     try {
       const requestBody: any = {
         prompt,
-        model,
+        model: apiModel,
         width,
         height,
         seed: finalSeed,
@@ -211,7 +218,7 @@ export const generateGiteeImage = async (
       return {
         id: generateUUID(),
         url: data.data[0].url,
-        model,
+        model, // Return the standardized ID for UI consistency
         prompt,
         aspectRatio,
         timestamp: Date.now(),
@@ -245,7 +252,8 @@ export const editImageGitee = async (
         formData.append('image', blob);
       });
 
-      formData.append('model', 'Qwen-Image-Edit');
+      const apiModel = API_MODEL_MAP.gitee['qwen-image-edit'];
+      formData.append('model', apiModel);
       // formData.append('width', width.toString());
       // formData.append('height', height.toString());
       formData.append('num_inference_steps', steps.toString());
@@ -280,7 +288,7 @@ export const editImageGitee = async (
       return {
         id: generateUUID(),
         url: data.data[0].url,
-        model: 'Qwen-Image-Edit',
+        model: 'qwen-image-edit', // Unified ID
         prompt,
         aspectRatio: 'custom',
         timestamp: Date.now(),
@@ -301,6 +309,7 @@ export const optimizePromptGitee = async (originalPrompt: string): Promise<strin
       const model = getOptimizationModel('gitee');
       // Append the fixed suffix to the user's custom system prompt
       const systemInstruction = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
+      const apiModel = API_MODEL_MAP.gitee[model] || model;
 
       const response = await fetch(GITEE_CHAT_API_URL, {
         method: 'POST',
@@ -309,7 +318,7 @@ export const optimizePromptGitee = async (originalPrompt: string): Promise<strin
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          model: model,
+          model: apiModel,
           messages: [
             {
               role: 'system',
@@ -344,7 +353,7 @@ export const optimizePromptGitee = async (originalPrompt: string): Promise<strin
 const VIDEO_NEGATIVE_PROMPT = "Vivid colors, overexposed, static, blurry details, subtitles, style, artwork, painting, image, still, overall grayish tone, worst quality, low quality, JPEG compression artifacts, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn face, deformed, disfigured, malformed limbs, fused fingers, still image, cluttered background, three legs, many people in the background, walking backward, Screen shaking";
 
 export const createVideoTask = async (
-  imageUrl: string, 
+  imageInput: string | Blob, 
   width: number, 
   height: number
 ): Promise<string> => {
@@ -353,12 +362,13 @@ export const createVideoTask = async (
       const settings = getVideoSettings('gitee');
       // Convert Duration (seconds) to Frames. 1s = 16 frames.
       const numFrames = Math.round(settings.duration * 16);
+      const apiModel = API_MODEL_MAP.gitee['wan2_2-i2v'];
 
       const formData = new FormData();
-      formData.append('image', imageUrl); 
+      formData.append('image', imageInput); 
       formData.append('prompt', settings.prompt);
       formData.append('negative_prompt', VIDEO_NEGATIVE_PROMPT);
-      formData.append('model', 'Wan2_2-I2V-A14B');
+      formData.append('model', apiModel);
       formData.append('num_inferenece_steps', settings.steps.toString());
       formData.append('num_frames', numFrames.toString());
       formData.append('guidance_scale', settings.guidance.toString());
