@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Select, OptionGroup } from './Select';
 import { Tooltip } from './Tooltip';
 import { Settings, ChevronUp, ChevronDown, Minus, Plus, Dices, Cpu } from 'lucide-react';
@@ -117,9 +117,56 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         return () => window.removeEventListener('storage', updateModelOptions);
     }, [t]);
 
-    // Current Model Config
-    const currentModelConfig = getModelConfig(provider, model);
-    const guidanceScaleConfig = getGuidanceScaleConfig(model, provider);
+    // Determine current model configuration (Standard or Custom)
+    const activeConfig = useMemo(() => {
+        const customProviders = getCustomProviders();
+        // Try to find custom provider matching the ID
+        const activeCustomProvider = customProviders.find(p => p.id === provider);
+        
+        if (activeCustomProvider) {
+            // It's a custom provider
+            const customModel = activeCustomProvider.models.generate?.find(m => m.id === model);
+            
+            if (customModel) {
+                return {
+                    isCustom: true,
+                    steps: customModel.steps ? {
+                        min: customModel.steps.range[0],
+                        max: customModel.steps.range[1],
+                        default: customModel.steps.default
+                    } : null,
+                    guidance: customModel.guidance ? {
+                        min: customModel.guidance.range[0],
+                        max: customModel.guidance.range[1],
+                        step: 0.1,
+                        default: customModel.guidance.default
+                    } : null
+                };
+            }
+        }
+
+        // Fallback to standard config
+        return {
+            isCustom: false,
+            steps: getModelConfig(provider, model),
+            guidance: getGuidanceScaleConfig(model, provider)
+        };
+    }, [provider, model]);
+
+    // Initialize defaults when model changes
+    useEffect(() => {
+        if (activeConfig.isCustom) {
+            if (activeConfig.steps) {
+                setSteps(activeConfig.steps.default);
+            }
+            if (activeConfig.guidance) {
+                setGuidanceScale(activeConfig.guidance.default);
+            }
+        }
+        // Standard provider defaults are handled in App.tsx effects, 
+        // but custom ones need explicit handling here since App.tsx 
+        // mainly relies on getModelConfig/constants.
+    }, [activeConfig, setSteps, setGuidanceScale]);
 
     const handleRandomizeSeed = () => {
         setSeed(Math.floor(Math.random() * 2147483647).toString());
@@ -203,26 +250,28 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${isAdvancedOpen ? 'grid-rows-[1fr] mt-4' : 'grid-rows-[0fr]'}`}>
                     <div className="overflow-hidden">
                         <div className="space-y-5">
-                            {/* Steps */}
-                            <div className="group">
-                                <div className="flex items-center justify-between pb-2">
-                                    <p className="text-white/80 text-sm font-medium">{t.steps}</p>
-                                    <span className="text-white/50 text-xs bg-white/5 px-2 py-0.5 rounded font-mono">{steps}</span>
+                            {/* Steps - Hide if not configured in custom model */}
+                            {activeConfig.steps && (
+                                <div className="group">
+                                    <div className="flex items-center justify-between pb-2">
+                                        <p className="text-white/80 text-sm font-medium">{t.steps}</p>
+                                        <span className="text-white/50 text-xs bg-white/5 px-2 py-0.5 rounded font-mono">{steps}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="range"
+                                            min={activeConfig.steps.min}
+                                            max={activeConfig.steps.max}
+                                            value={steps}
+                                            onChange={(e) => setSteps(Number(e.target.value))}
+                                            className="custom-range text-purple-500"
+                                        />
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-3">
-                                    <input
-                                        type="range"
-                                        min={currentModelConfig.min}
-                                        max={currentModelConfig.max}
-                                        value={steps}
-                                        onChange={(e) => setSteps(Number(e.target.value))}
-                                        className="custom-range text-purple-500"
-                                    />
-                                </div>
-                            </div>
+                            )}
 
-                            {/* Guidance Scale - Only for Flux Models */}
-                            {guidanceScaleConfig && (
+                            {/* Guidance Scale - Hide if not configured in custom model (or standard model doesn't support it) */}
+                            {activeConfig.guidance && (
                                 <div className="group">
                                     <div className="flex items-center justify-between pb-2">
                                         <p className="text-white/80 text-sm font-medium">{t.guidanceScale}</p>
@@ -231,9 +280,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                                     <div className="flex items-center gap-3">
                                         <input
                                             type="range"
-                                            min={guidanceScaleConfig.min}
-                                            max={guidanceScaleConfig.max}
-                                            step={guidanceScaleConfig.step}
+                                            min={activeConfig.guidance.min}
+                                            max={activeConfig.guidance.max}
+                                            step={activeConfig.guidance.step || 0.1}
                                             value={guidanceScale}
                                             onChange={(e) => setGuidanceScale(Number(e.target.value))}
                                             className="custom-range text-purple-500"

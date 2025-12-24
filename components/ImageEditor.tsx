@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
     Hand, 
@@ -135,7 +136,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 if (galleryLocalUrls[file.key]) continue;
 
                 try {
-                    const blob = await fetchCloudBlob(file.url);
+                    const blob = await fetchCloudBlob(file.url as string);
                     if (!isCancelled) {
                         const url = URL.createObjectURL(blob);
                         setGalleryLocalUrls(prev => ({ ...prev, [file.key]: url }));
@@ -228,13 +229,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         // Check if it's a data URL or blob URL (local), return as is
         if (url.startsWith('data:') || url.startsWith('blob:')) return url;
         
-        // Remove protocol
-        const cleanUrl = url.replace(/^https?:\/\//, '');
-        return `https://i0.wp.com/${cleanUrl}`;
+        return `https://peinture-proxy.9th.xyz/?url=${url}`;
     };
-
-    // Filter history to exclude Model Scope images as they typically have CORS issues even with proxy
-    const compatibleHistory = history.filter(img => img.provider !== 'modelscope');
 
     // --- History Management ---
     
@@ -355,12 +351,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         };
         img.onerror = () => {
             console.error("Failed to load image via proxy:", url);
-            // If proxy fails and it's not a blob, try direct
-            if (url.includes('i0.wp.com')) {
-                // Should handle better, but for now log
-            }
         };
-        img.src = getProxyUrl(url);
+        img.src = provider === 'gitee' || provider === 'modelscope' ? getProxyUrl(url) : url;
     };
 
     const handleHistorySelect = (historyItem: GeneratedImage) => {
@@ -694,7 +686,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     };
 
     const urlToBlob = async (url: string): Promise<Blob> => {
-        const fetchUrl = getProxyUrl(url);
+        const fetchUrl = provider === 'gitee' || provider === 'modelscope' ? getProxyUrl(url) : url;
         const response = await fetch(fetchUrl);
         return await response.blob();
     };
@@ -777,9 +769,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         setIsDownloading(true);
         let fileName = `edited_image_${Date.now()}`;
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+        if (provider === 'gitee' || provider === 'modelscope') {
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            if (isMobile) link.target = "_blank"
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
         try {
-            const fetchUrl = getProxyUrl(url); 
-            const response = await fetch(fetchUrl, { mode: 'cors' });
+            const fetchUrl = url; 
+            const response = await fetch(fetchUrl);
             if (!response.ok) throw new Error('Network response was not ok');
             let blob = await response.blob();
             if (blob.type.startsWith('image') && (blob.type === 'image/webp' || url.includes('.webp'))) {
@@ -888,7 +891,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             if (isSourceNSFW) {
                 fileName += '.NSFW';
             }
-            fileName += '.png'; // explicit extension for safety, though upload service handles it too
+            const getExt = (url: string) => new URL(url).pathname.split('.').pop();
+            fileName += `.${getExt(generatedResult)}`
 
             await handleUploadToS3(blob, fileName, metadata);
         } catch (e) {
@@ -1516,21 +1520,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                         </div>
                         
                         <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-[#0D0B14]">
-                            {compatibleHistory.length === 0 ? (
+                            {history.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full text-white/30 space-y-4">
                                     <Sparkles className="w-12 h-12 opacity-50" />
                                     <p>{t.no_history_images}</p>
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                                    {compatibleHistory.map((img) => (
+                                    {history.map((img) => (
                                         <button
                                             key={img.id}
                                             onClick={() => handleHistorySelect(img)}
                                             className="group relative aspect-square rounded-xl overflow-hidden border border-white/10 hover:border-purple-500 transition-all hover:ring-4 hover:ring-purple-500/20 focus:outline-none"
                                         >
                                             <img 
-                                                src={getProxyUrl(img.url)} 
+                                                src={img.url} 
                                                 alt={img.prompt} 
                                                 className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                                                 loading="lazy"

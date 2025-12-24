@@ -86,6 +86,7 @@ export interface GenerationParams {
 export interface RemoteModel {
   id: string;
   name: string;
+  type: string[];
   steps?: {
     range: [number, number];
     default: number;
@@ -101,6 +102,7 @@ export interface RemoteModelList {
   edit?: RemoteModel[];
   video?: RemoteModel[];
   text?: RemoteModel[];
+  upscaler?: RemoteModel[];
 }
 
 export interface CustomProvider {

@@ -11,6 +11,7 @@ export const API_MODEL_MAP: Record<ProviderOption, Record<string, string>> = {
     'openai-fast': 'openai-fast', // text
     'qwen-image-edit': 'qwen-image-edit', // edit (placeholder/internal)
     'wan2_2-i2v': 'wan2.2', // video (internal/HF space convention)
+    'RealESRGAN_x4plus': 'RealESRGAN_x4plus', // upscaler
   },
   gitee: {
     'z-image-turbo': 'z-image-turbo',
@@ -131,4 +132,8 @@ export const TEXT_MODELS: UnifiedModelOption[] = [
     { label: 'OpenAI 4o mini', value: 'huggingface:openai-fast', provider: 'huggingface' },
     { label: 'DeepSeek V3.2', value: 'gitee:deepseek-3_2', provider: 'gitee' },
     { label: 'DeepSeek V3.2', value: 'modelscope:deepseek-3_2', provider: 'modelscope' },
+];
+
+export const UPSCALER_MODELS: UnifiedModelOption[] = [
+    { label: 'RealESRGAN x4 Plus', value: 'huggingface:RealESRGAN_x4plus', provider: 'huggingface' },
 ];

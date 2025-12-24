@@ -111,6 +111,7 @@ export const saveOptimizationModel = (provider: string, model: string) => {
 const EDIT_MODEL_KEY = 'app_edit_model_config';
 const LIVE_MODEL_KEY = 'app_live_model_config';
 const TEXT_MODEL_KEY = 'app_text_model_config';
+const UPSCALER_MODEL_KEY = 'app_upscaler_model_config';
 
 export const getEditModelConfig = (): { provider: string, model: string } => {
     if (typeof localStorage === 'undefined') return { provider: 'huggingface', model: 'qwen-image-edit' };
@@ -152,6 +153,20 @@ export const getTextModelConfig = (): { provider: string, model: string } => {
 
 export const saveTextModelConfig = (value: string) => {
     if (typeof localStorage !== 'undefined') localStorage.setItem(TEXT_MODEL_KEY, value);
+};
+
+export const getUpscalerModelConfig = (): { provider: string, model: string } => {
+    if (typeof localStorage === 'undefined') return { provider: 'huggingface', model: 'RealESRGAN_x4plus' };
+    const saved = localStorage.getItem(UPSCALER_MODEL_KEY);
+    if (saved) {
+        const [provider, model] = saved.split(':');
+        return { provider, model };
+    }
+    return { provider: 'huggingface', model: 'RealESRGAN_x4plus' };
+};
+
+export const saveUpscalerModelConfig = (value: string) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(UPSCALER_MODEL_KEY, value);
 };
 
 // --- Video Settings Management ---

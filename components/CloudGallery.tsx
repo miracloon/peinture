@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { CloudFile } from '../types';
 import { CloudUpload, Image as ImageIcon, Film, Loader2, Download, Trash2, Copy, Eye, EyeOff, Maximize2, X, Check, Settings } from 'lucide-react';
@@ -76,7 +77,7 @@ export const CloudGallery: React.FC<CloudGalleryProps> = ({ t, handleUploadToS3,
 
                 // Fetch blob and create ObjectURL (handles signed S3 requests via fetchCloudBlob)
                 try {
-                    const blob = await fetchCloudBlob(file.url);
+                    const blob = await fetchCloudBlob(file.url as string);
                     if (!isCancelled) {
                         const url = URL.createObjectURL(blob);
                         setLocalUrls(prev => ({ ...prev, [file.key]: url }));

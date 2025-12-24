@@ -3,8 +3,8 @@ import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from '
 import { generateImage, upscaler, createVideoTaskHF, uploadToGradio, QWEN_IMAGE_EDIT_BASE_API_URL } from './services/hfService';
 import { generateGiteeImage, optimizePromptGitee, createVideoTask, getGiteeTaskStatus } from './services/giteeService';
 import { generateMSImage, optimizePromptMS } from './services/msService';
-import { generateCustomImage, generateCustomVideo, optimizePromptCustom, fetchServerModels } from './services/customService';
-import { translatePrompt, generateUUID, getLiveModelConfig, getTextModelConfig, optimizeEditPrompt, getCustomProviders, getVideoSettings, getServiceMode, saveServiceMode, addCustomProvider } from './services/utils';
+import { generateCustomImage, generateCustomVideo, optimizePromptCustom, fetchServerModels, getCustomTaskStatus, upscaleImageCustom } from './services/customService';
+import { translatePrompt, generateUUID, getLiveModelConfig, getTextModelConfig, getUpscalerModelConfig, optimizeEditPrompt, getCustomProviders, getVideoSettings, getServiceMode, saveServiceMode, addCustomProvider } from './services/utils';
 import { uploadToCloud, isStorageConfigured } from './services/storageService';
 import { GeneratedImage, AspectRatioOption, ModelOption, ProviderOption, CloudImage, CustomProvider, ServiceMode } from './types';
 import { HistoryGallery } from './components/HistoryGallery';
@@ -20,7 +20,7 @@ import {
   RotateCcw,
   Lock,
 } from 'lucide-react';
-import { getModelConfig, getGuidanceScaleConfig, FLUX_MODELS, HF_MODEL_OPTIONS, GITEE_MODEL_OPTIONS, MS_MODEL_OPTIONS } from './constants';
+import { getModelConfig, getGuidanceScaleConfig, FLUX_MODELS, HF_MODEL_OPTIONS, GITEE_MODEL_OPTIONS, MS_MODEL_OPTIONS, LIVE_MODELS } from './constants';
 import { PromptInput } from './components/PromptInput';
 import { ControlPanel } from './components/ControlPanel';
 import { PreviewStage } from './components/PreviewStage';
@@ -335,8 +335,7 @@ export default function App() {
         const currentHist = historyRef.current;
         const pendingVideos = currentHist.filter(img => 
             img.videoStatus === 'generating' && 
-            img.videoTaskId && 
-            img.videoProvider === 'gitee'
+            img.videoTaskId
         );
         
         if (pendingVideos.length === 0) return;
@@ -345,9 +344,21 @@ export default function App() {
         const updates = await Promise.all(pendingVideos.map(async (img) => {
             if (!img.videoTaskId) return null;
             try {
-                const result = await getGiteeTaskStatus(img.videoTaskId);
-                if (result.status === 'success' || result.status === 'failed') {
-                    return { id: img.id, ...result };
+                if (img.videoProvider === 'gitee') {
+                    const result = await getGiteeTaskStatus(img.videoTaskId);
+                    if (result.status === 'success' || result.status === 'failed') {
+                        return { id: img.id, ...result };
+                    }
+                } else if (img.videoProvider) {
+                    // Try Custom Provider
+                    const customProviders = getCustomProviders();
+                    const provider = customProviders.find(p => p.id === img.videoProvider);
+                    if (provider) {
+                        const result = await getCustomTaskStatus(provider, img.videoTaskId);
+                        if (result.status === 'success' || result.status === 'failed') {
+                            return { id: img.id, ...result };
+                        }
+                    }
                 }
                 return null;
             } catch (e) {
@@ -478,7 +489,7 @@ export default function App() {
       return new Promise((resolve, reject) => {
           const img = new Image();
           img.crossOrigin = "Anonymous";
-          img.src = useProxy ? `https://i0.wp.com/${url.replace(/^https?:\/\//, '')}` : url;
+          img.src = useProxy ? `https://peinture-proxy.9th.xyz/?url=${url}` : url;
           img.onload = () => {
                const canvas = document.createElement('canvas');
                canvas.width = img.naturalWidth;
@@ -606,7 +617,29 @@ export default function App() {
     setIsUpscaling(true);
     setError(null);
     try {
-        const { url: newUrl } = await upscaler(currentImage.url);
+        const config = getUpscalerModelConfig(); // { provider, model }
+        
+        let newUrl = '';
+
+        if (config.provider === 'huggingface') {
+            // Default HF logic (RealESRGAN)
+            const result = await upscaler(currentImage.url);
+            newUrl = result.url;
+        } else {
+            // Check for Custom Provider
+            const customProviders = getCustomProviders();
+            const activeProvider = customProviders.find(p => p.id === config.provider);
+            
+            if (activeProvider) {
+                const result = await upscaleImageCustom(activeProvider, config.model, currentImage.url);
+                newUrl = result.url;
+            } else {
+                // Fallback to HF
+                const result = await upscaler(currentImage.url);
+                newUrl = result.url;
+            }
+        }
+
         setTempUpscaledImage(newUrl);
         setIsComparing(true);
     } catch (err: any) {
@@ -743,12 +776,55 @@ export default function App() {
       // If already generating, do nothing
       if (currentImage.videoStatus === 'generating') return;
 
+      // Get configured Live Model
+      let liveConfig = getLiveModelConfig(); // { provider, model }
+
+      // --- NEW LOGIC: Dynamic fallback to available live models ---
+      const serviceMode = getServiceMode();
+      const customProviders = getCustomProviders();
+      let availableLiveModels: { provider: string, model: string }[] = [];
+
+      // 1. Base Providers
+      if (serviceMode === 'local' || serviceMode === 'hydration') {
+          LIVE_MODELS.forEach(m => {
+              // m.value is "provider:modelId"
+              const parts = m.value.split(':');
+              if (parts.length >= 2) {
+                  availableLiveModels.push({ provider: parts[0], model: parts.slice(1).join(':') });
+              }
+          });
+      }
+
+      // 2. Custom Providers
+      if (serviceMode === 'server' || serviceMode === 'hydration') {
+          customProviders.forEach(cp => {
+              if (cp.models.video) {
+                  cp.models.video.forEach(m => {
+                      availableLiveModels.push({ provider: cp.id, model: m.id });
+                  });
+              }
+          });
+      }
+
+      // Check if configured model is in available list
+      const isConfigValid = availableLiveModels.some(
+          m => m.provider === liveConfig.provider && m.model === liveConfig.model
+      );
+
+      if (!isConfigValid && availableLiveModels.length > 0) {
+          // Fallback to first available
+          liveConfig = availableLiveModels[0];
+          console.log("Live model fallback to:", liveConfig);
+      } else if (availableLiveModels.length === 0) {
+          setError(t.liveNotSupported || "No Live models available");
+          return;
+      }
+      // --- END NEW LOGIC ---
+
       // Start Generation
       let width = imageDimensions?.width || 1024;
       let height = imageDimensions?.height || 1024;
 
-      // Get configured Live Model
-      const liveConfig = getLiveModelConfig(); // { provider, model }
       const currentVideoProvider = liveConfig.provider as ProviderOption;
 
       // Prepare Image Input
@@ -756,10 +832,10 @@ export default function App() {
       let imageInput: string | Blob = currentImage.url;
       
       try {
-          // If the image is from ModelScope or a Custom provider that might have CORS issues,
+          // If the image is from ModelScope or Gitee AI provider that have CORS issues,
           // or simply to ensure stability across providers for Live generation:
           // Try to fetch it as a Blob. For ModelScope specifically, use proxy logic in getUrlAsBlob.
-          if (currentImage.provider === 'modelscope' || currentImage.provider !== currentVideoProvider) {
+          if (currentImage.provider === 'gitee' || currentImage.provider === 'modelscope') {
                // Use proxy for fetching to be safe
                imageInput = await getUrlAsBlob(currentImage.url, true);
           }
@@ -820,19 +896,12 @@ export default function App() {
               }
           } else {
               // Custom Video Provider
-              // For custom, we convert Blob to string URL if needed or handle upload?
-              // The generateCustomVideo service expects a string URL currently.
-              // If we have a blob, we might need to upload it somewhere first.
-              // For now, if we have a blob, create a temporary object URL? No, that's local.
-              // Custom providers typically need a publicly accessible URL or base64.
-              // Assuming custom provider can handle the original URL if not blob.
-              // If we have blob, let's revert to original URL and hope custom provider can fetch it.
-              
               const customProviders = getCustomProviders();
               const activeProvider = customProviders.find(p => p.id === currentVideoProvider);
               if (activeProvider) {
                   const settings = getVideoSettings(currentVideoProvider);
-                  const videoUrl = await generateCustomVideo(
+                  // generateCustomVideo now returns object with url or taskId
+                  const result = await generateCustomVideo(
                       activeProvider, 
                       liveConfig.model, 
                       currentImage.url, // Pass original URL for custom
@@ -843,12 +912,22 @@ export default function App() {
                       settings.guidance
                   );
                   
-                  const successImage = { ...loadingImage, videoStatus: 'success', videoUrl } as GeneratedImage;
-                  setHistory(prev => prev.map(img => img.id === successImage.id ? successImage : img));
-                  setCurrentImage(prev => (prev && prev.id === successImage.id) ? successImage : prev);
-                  
-                  if (currentImageRef.current?.id === successImage.id) {
-                      setIsLiveMode(true);
+                  if (result.taskId) {
+                      // Async: Task created
+                      const taskedImage = { ...loadingImage, videoTaskId: result.taskId } as GeneratedImage;
+                      setCurrentImage(taskedImage);
+                      setHistory(prev => prev.map(img => img.id === taskedImage.id ? taskedImage : img));
+                  } else if (result.url) {
+                      // Sync: URL returned immediately
+                      const successImage = { ...loadingImage, videoStatus: 'success', videoUrl: result.url } as GeneratedImage;
+                      setHistory(prev => prev.map(img => img.id === successImage.id ? successImage : img));
+                      setCurrentImage(prev => (prev && prev.id === successImage.id) ? successImage : prev);
+                      
+                      if (currentImageRef.current?.id === successImage.id) {
+                          setIsLiveMode(true);
+                      }
+                  } else {
+                      throw new Error("Invalid response from video provider");
                   }
               } else {
                   throw new Error(t.liveNotSupported || "Live provider not supported");
@@ -874,19 +953,25 @@ export default function App() {
     if (isDownloading) return;
     setIsDownloading(true);
 
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
     try {
+        if (currentImage.provider === 'gitee' || currentImage.provider === 'modelscope') {
+            const link = document.createElement('a');
+            link.href = imageUrl;
+            if (isMobile) link.target = '_blank';
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setIsDownloading(false);
+            return;
+        }
+
       // 1. Fetch blob (handles CORS if server allows, and Data URLs)
       let response: Response;
-      try {
-          response = await fetch(imageUrl, { mode: 'cors' });
-          if (!response.ok) throw new Error('Network response was not ok');
-      } catch (e) {
-          console.warn("Fetch failed, trying fallback");
-          // Last resort: Open URL directly.
-          window.open(imageUrl, '_blank');
-          setIsDownloading(false);
-          return;
-      }
+      response = await fetch(imageUrl);
+      if (!response.ok) throw new Error('Network response was not ok');
       
       let blob = await response.blob();
 
@@ -939,8 +1024,6 @@ export default function App() {
       fileName = base + ext;
 
       // 4. Mobile Strategy: Web Share API (Primary for iOS/Mobile)
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
       if (isMobile) {
           const file = new File([blob], fileName, { type: blob.type });
           
@@ -975,9 +1058,7 @@ export default function App() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
-      // Cleanup
-      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+      window.URL.revokeObjectURL(blobUrl);
 
     } catch (e) {
       console.error("Download failed", e);
@@ -1001,35 +1082,13 @@ export default function App() {
         
         // Extract metadata and context
         const context = metadata || (currentImage ? { ...currentImage } : {});
-        const isModelScope = context.provider === 'modelscope';
 
         if (typeof imageBlobOrUrl === 'string') {
-            if (isModelScope) {
-                // Special handling for ModelScope to bypass CORS issues via Gradio Relay
-                try {
-                    // 1. Upload to public Gradio server to get a "clean" URL
-                    const gradioPath = await uploadToGradio(QWEN_IMAGE_EDIT_BASE_API_URL, imageBlobOrUrl, null);
-                    const cleanUrl = `${QWEN_IMAGE_EDIT_BASE_API_URL}/gradio_api/file=${gradioPath}`;
-                    
-                    // 2. Fetch from the clean URL
-                    const res = await fetch(cleanUrl);
-                    if (!res.ok) throw new Error("Failed to fetch cleaned image");
-                    blob = await res.blob();
-                    
-                } catch (e) {
-                    console.error("ModelScope upload workaround failed", e);
-                    // Fallback to trying direct fetch proxy
-                    const fetchUrl = `https://i0.wp.com/${imageBlobOrUrl.replace(/^https?:\/\//, '')}`;
-                    const response = await fetch(fetchUrl);
-                    if (!response.ok) throw new Error("Failed to fetch image for upload");
-                    blob = await response.blob();
-                }
-            } else if (context.provider === 'gitee') {
-                 const cleanUrl = imageBlobOrUrl.replace(/^https?:\/\//, '');
-                 const fetchUrl = `https://i0.wp.com/${cleanUrl}`;
-                 const response = await fetch(fetchUrl);
-                 if (!response.ok) throw new Error("Failed to fetch image for upload");
-                 blob = await response.blob();
+            if (context.provider === 'modelscope' || context.provider === 'gitee') {
+                const fetchUrl = `https://peinture-proxy.9th.xyz/?url=${imageBlobOrUrl}`;
+                const response = await fetch(fetchUrl);
+                if (!response.ok) throw new Error("Failed to fetch image for upload");
+                blob = await response.blob();
             } else {
                 // Standard fetch
                 const response = await fetch(imageBlobOrUrl);
@@ -1237,6 +1296,8 @@ export default function App() {
                                         if (currentImage.isBlurred) {
                                             fileName += '.NSFW';
                                         }
+                                        const getExt = (url: string) => new URL(url).pathname.split('.').pop();
+                                        fileName += `.${getExt(currentImage.url)}`
                                         handleUploadToCloud(currentImage.url, fileName);
                                     }
                                 }}

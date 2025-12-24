@@ -395,7 +395,7 @@ export const translations = {
     service_mode: "服务模式",
     mode_local: "本地",
     mode_server: "服务器",
-    mode_hydration: "混合",
+    mode_hydration: "融合",
     access_password_title: "需要认证",
     access_password_desc: "服务器需要访问密码才能继续。",
     access_password_placeholder: "输入访问密码",

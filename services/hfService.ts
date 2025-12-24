@@ -580,22 +580,7 @@ export const createVideoTaskHF = async (imageInput: string | Blob, seed: number 
       let filePath = '';
       
       if (typeof imageInput === 'string') {
-          // If input is URL, check if it is already a Gradio file (rare) or needs upload
-          // Ideally we download and upload to ensure it's on the specific space
-          // But as a fallback, we can try passing URL if API supports it (Wan2 usually needs upload)
-          // For robustness, we assume caller passed a Blob or we fetch it here if strictly needed.
-          // But to keep it simple, we assume the caller passes a blob if it's cross-origin.
-          // If it's a string, we assume it's publicly accessible and pass it directly 
-          // OR better: fetch it here.
-          try {
-              const fetchUrl = imageInput.replace(/^https?:\/\//, 'https://i0.wp.com/');
-              const res = await fetch(fetchUrl);
-              const blob = await res.blob();
-              filePath = await uploadToGradio(WAN2_VIDEO_API_URL, blob, token);
-          } catch(e) {
-              console.warn("Failed to fetch image for video, using URL directly", e);
-              filePath = imageInput;
-          }
+          filePath = imageInput;
       } else {
           filePath = await uploadToGradio(WAN2_VIDEO_API_URL, imageInput, token);
       }

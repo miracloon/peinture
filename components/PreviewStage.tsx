@@ -5,6 +5,7 @@ import { ImageComparison } from './ImageComparison';
 import { Paintbrush, AlertCircle, Sparkles, Timer, Copy, Check, X, Film, Image as ImageIcon } from 'lucide-react';
 import { GeneratedImage } from '../types';
 import { HF_MODEL_OPTIONS, GITEE_MODEL_OPTIONS, MS_MODEL_OPTIONS } from '../constants';
+import { getCustomProviders } from '../services/utils';
 
 interface PreviewStageProps {
     currentImage: GeneratedImage | null;
@@ -52,9 +53,41 @@ export const PreviewStage: React.FC<PreviewStageProps> = ({
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
 
-    const getModelLabel = (modelValue: string) => {
+    const getProviderLabel = (providerId?: string) => {
+        if (!providerId) return 'Hugging Face';
+        if (providerId === 'gitee') return 'Gitee AI';
+        if (providerId === 'modelscope') return 'Model Scope';
+        if (providerId === 'huggingface') return 'Hugging Face';
+        
+        // Check Custom Providers
+        const customProviders = getCustomProviders();
+        const custom = customProviders.find(p => p.id === providerId);
+        return custom ? custom.name : providerId; // Fallback to ID if not found
+    };
+
+    const getModelLabel = (modelValue: string, providerId?: string) => {
+        // First check standard lists
         const option = [...HF_MODEL_OPTIONS, ...GITEE_MODEL_OPTIONS, ...MS_MODEL_OPTIONS].find(o => o.value === modelValue);
-        return option ? option.label : modelValue;
+        if (option) return option.label;
+
+        // Then check custom provider models if available
+        if (providerId) {
+            const customProviders = getCustomProviders();
+            const custom = customProviders.find(p => p.id === providerId);
+            if (custom) {
+                // Search in all categories
+                const allModels = [
+                    ...(custom.models.generate || []),
+                    ...(custom.models.edit || []),
+                    ...(custom.models.video || []),
+                    ...(custom.models.text || [])
+                ];
+                const customModel = allModels.find(m => m.id === modelValue);
+                if (customModel) return customModel.name;
+            }
+        }
+        
+        return modelValue;
     };
 
     const isLiveGenerating = currentImage?.videoStatus === 'generating';
@@ -189,20 +222,24 @@ export const PreviewStage: React.FC<PreviewStageProps> = ({
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-0.5">{t.provider}</span>
-                                        <p className="text-white/90 capitalize">
-                                            {currentImage.provider === 'gitee' ? 'Gitee AI' : (currentImage.provider === 'modelscope' ? 'Model Scope' : 'Hugging Face')}
+                                        <p className="text-white/90 capitalize truncate" title={getProviderLabel(currentImage.provider)}>
+                                            {getProviderLabel(currentImage.provider)}
                                         </p>
                                     </div>
                                     <div>
                                         <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-0.5">{t.model}</span>
-                                        <p className="text-white/90 truncate">{getModelLabel(currentImage.model)}</p>
+                                        <p className="text-white/90 truncate" title={getModelLabel(currentImage.model, currentImage.provider)}>
+                                            {getModelLabel(currentImage.model, currentImage.provider)}
+                                        </p>
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-0.5">{t.dimensions}</span>
                                         <p className="text-white/90">
-                                            {imageDimensions ? `${imageDimensions.width} x ${imageDimensions.height} (${currentImage.aspectRatio})` : currentImage.aspectRatio}
+                                            {imageDimensions ? `${imageDimensions.width} x ${imageDimensions.height}` : currentImage.aspectRatio}
+                                            {/* Show aspect ratio if not custom or if dimensions match */}
+                                            {currentImage.aspectRatio !== 'custom' && imageDimensions && ` (${currentImage.aspectRatio})`}
                                             {currentImage.isUpscaled && <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 font-bold">HD</span>}
                                         </p>
                                     </div>

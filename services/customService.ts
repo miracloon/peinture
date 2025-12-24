@@ -1,31 +1,20 @@
 
-import { CustomProvider, GeneratedImage, AspectRatioOption, RemoteModelList } from "../types";
+import { CustomProvider, GeneratedImage, AspectRatioOption, RemoteModelList, RemoteModel } from "../types";
 import { generateUUID } from "./utils";
 
 const cleanUrl = (url: string) => url.replace(/\/+$/, '');
 
-const handleResponse = async (response: Response) => {
-    if (!response.ok) {
-        // Specifically throw error with status for 401 handling
-        if (response.status === 401) {
-            throw new Error(`401`);
-        }
-        const text = await response.text();
-        throw new Error(text || `Request failed with status ${response.status}`);
-    }
-    const data = await response.json();
+// Helper to transform flat model array to categorized list
+export const transformModelList = (models: RemoteModel[]): RemoteModelList => {
+    if (!Array.isArray(models)) return {};
     
-    // Support various common response formats for flexibility
-    if (typeof data === 'string') return data; // Raw string response
-    if (data.url) return data.url[0]; // Standard { id: "", url: ["..."] }
-    
-    // For text responses
-    if (data.text) return data.text;
-    if (data.content) return data.content;
-    if (data.choices && data.choices[0]?.message?.content) return data.choices[0].message.content;
-    
-    // Fallback: return the whole object if we can't parse a specific field, caller might handle it
-    return data;
+    return {
+        generate: models.filter(m => m.type && m.type.includes('text2image')),
+        edit: models.filter(m => m.type && m.type.includes('image2image')),
+        video: models.filter(m => m.type && m.type.includes('image2video')),
+        text: models.filter(m => m.type && m.type.includes('text2text')),
+        upscaler: models.filter(m => m.type && m.type.includes('upscaler')),
+    };
 };
 
 export const fetchServerModels = async (token?: string): Promise<RemoteModelList> => {
@@ -38,7 +27,8 @@ export const fetchServerModels = async (token?: string): Promise<RemoteModelList
         if (response.status === 401) throw new Error('401');
         throw new Error('Failed to fetch server models');
     }
-    return await response.json();
+    const data = await response.json();
+    return transformModelList(data);
 };
 
 export const generateCustomImage = async (
@@ -75,7 +65,11 @@ export const generateCustomImage = async (
         const text = await response.text();
         throw new Error(text || `Request failed with status ${response.status}`);
     }
-    const { id, url } = await response.json();
+    
+    // Parse extended response fields
+    // Structure: { id, url, width, height, seed, steps?, guidance? }
+    const data = await response.json();
+    const { id, url, width, height, seed: responseSeed, steps: responseSteps, guidance: responseGuidance } = data;
 
     if (typeof url !== 'string') {
         throw new Error("Invalid response format from custom provider: URL not found");
@@ -86,11 +80,17 @@ export const generateCustomImage = async (
         url,
         model,
         prompt,
-        aspectRatio,
+        aspectRatio, // Keeps requested AR for reference, though dimensions might differ slightly
         timestamp: Date.now(),
-        seed: body.seed,
-        steps,
-        provider: provider.id // Use custom provider ID
+        seed: responseSeed !== undefined ? responseSeed : body.seed,
+        steps: responseSteps !== undefined ? responseSteps : steps,
+        guidanceScale: responseGuidance !== undefined ? responseGuidance : guidance,
+        provider: provider.id, // Use custom provider ID
+        // Note: GeneratedImage interface doesn't strictly enforce width/height properties on the root object 
+        // typically, but UI often derives them or uses them if available. 
+        // If needed, we can extend GeneratedImage type or rely on image onLoad in PreviewStage.
+        // However, App.tsx uses `imageDimensions` state.
+        // We will return them here, and update App.tsx to use them if we want to pre-fill dimensions.
     };
 };
 
@@ -156,7 +156,7 @@ export const generateCustomVideo = async (
     seed: number,
     steps: number,
     guidance: number
-): Promise<string> => {
+): Promise<{ url?: string; taskId?: string }> => {
     const baseUrl = cleanUrl(provider.apiUrl);
     const body = {
         model,
@@ -168,21 +168,72 @@ export const generateCustomVideo = async (
         guidance
     };
 
-    const result = await handleResponse(await fetch(`${baseUrl}/v1/video`, {
+    const response = await fetch(`${baseUrl}/v1/video`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': provider.token ? `Bearer ${provider.token}` : ''
         },
         body: JSON.stringify(body)
-    }));
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Request failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Check for async task ID
+    if (data.taskId) {
+        return { taskId: data.taskId };
+    }
     
-    // Check if result is string URL or object
-    const videoUrl = typeof result === 'string' ? result : result?.url[0];
+    // Check for sync URL (string or object with url array)
+    const videoUrl = typeof data === 'string' ? data : (data.url ? data.url[0] : null);
     
-    if (!videoUrl) throw new Error("Video URL not found in response");
+    if (videoUrl) {
+        return { url: videoUrl };
+    }
     
-    return videoUrl;
+    throw new Error("Video URL or Task ID not found in response");
+};
+
+export const getCustomTaskStatus = async (
+    provider: CustomProvider, 
+    taskId: string
+): Promise<{status: string, videoUrl?: string, error?: string}> => {
+    const baseUrl = cleanUrl(provider.apiUrl);
+    const headers: Record<string, string> = {};
+    if (provider.token) {
+        headers['Authorization'] = `Bearer ${provider.token}`;
+    }
+    
+    try {
+        const response = await fetch(`${baseUrl}/v1/task-status?taskId=${taskId}`, {
+            method: 'GET',
+            headers
+        });
+        
+        if (!response.ok) throw new Error('Failed to check task status');
+        
+        const data = await response.json();
+        // Expected data structure: { status: "success" | "failed", id?: string, url?: string[], error?: string }
+        
+        const result: {status: string, videoUrl?: string, error?: string} = { status: data.status || 'processing' };
+        
+        if (data.status === 'success' && data.url && data.url.length > 0) {
+            result.videoUrl = data.url[0];
+        } else if (data.status === 'failed') {
+            result.error = data.error || 'Video generation failed';
+        }
+        
+        return result;
+    } catch (error: any) {
+        console.error("Check Custom Task Status Error:", error);
+        // Don't fail the whole polling, just return status as is or error
+        return { status: 'error', error: error.message };
+    }
 };
 
 export const optimizePromptCustom = async (
@@ -211,4 +262,37 @@ export const optimizePromptCustom = async (
     }
     const { text } = await response.json();
     return text;
+};
+
+export const upscaleImageCustom = async (
+    provider: CustomProvider,
+    model: string, // Kept for future flexibility if custom provider supports multiple upscalers
+    imageUrl: string
+): Promise<{ url: string }> => {
+    const baseUrl = cleanUrl(provider.apiUrl);
+    const body = {
+        imageUrl
+    };
+
+    const response = await fetch(`${baseUrl}/v1/upscaler`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': provider.token ? `Bearer ${provider.token}` : ''
+        },
+        body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Request failed with status ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.url) {
+        throw new Error("Invalid response format from custom upscaler: URL not found");
+    }
+
+    return { url: data.url };
 };

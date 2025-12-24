@@ -5,6 +5,7 @@ import { Language } from '../translations';
 import { getTokenStats } from '../services/hfService';
 import { getGiteeTokenStats } from '../services/giteeService';
 import { getMsTokenStats } from '../services/msService';
+import { transformModelList } from '../services/customService';
 import { ProviderOption, S3Config, WebDAVConfig, StorageType, ModelOption, CustomProvider, RemoteModelList, ServiceMode } from '../types';
 import { 
     getSystemPromptContent,
@@ -23,6 +24,8 @@ import {
     saveLiveModelConfig,
     getTextModelConfig,
     saveTextModelConfig,
+    getUpscalerModelConfig,
+    saveUpscalerModelConfig,
     getCustomProviders,
     addCustomProvider,
     removeCustomProvider,
@@ -51,6 +54,7 @@ import {
     EDIT_MODELS, 
     LIVE_MODELS, 
     TEXT_MODELS,
+    UPSCALER_MODELS,
     UnifiedModelOption
 } from '../constants';
 
@@ -115,6 +119,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
     const [editModelValue, setEditModelValue] = useState<string>('');
     const [liveModelValue, setLiveModelValue] = useState<string>('');
     const [textModelValue, setTextModelValue] = useState<string>('');
+    const [upscalerModelValue, setUpscalerModelValue] = useState<string>('');
 
     // Video Settings State
     const [videoSettings, setVideoSettings] = useState<VideoSettings>(DEFAULT_VIDEO_SETTINGS['huggingface']);
@@ -184,6 +189,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
             const textConfig = getTextModelConfig();
             setTextModelValue(`${textConfig.provider}:${textConfig.model}`);
 
+            const upscalerConfig = getUpscalerModelConfig();
+            setUpscalerModelValue(`${upscalerConfig.provider}:${upscalerConfig.model}`);
+
             // Initialize Creation Model Value from props
             if (provider && currentModel) {
                 setCreationModelValue(`${provider}:${currentModel}`);
@@ -197,6 +205,99 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
             setShowClearConfirm(false);
         }
     }, [isOpen, provider, currentModel]);
+
+    // Validation Effect: Check if current models exist in available list, if not, reset to first available
+    useEffect(() => {
+        const getValidValues = (type: 'generate' | 'edit' | 'video' | 'text' | 'upscaler', baseList: UnifiedModelOption[]) => {
+            const valid = new Set<string>();
+            const isLocal = serviceMode === 'local' || serviceMode === 'hydration';
+            const isServer = serviceMode === 'server' || serviceMode === 'hydration';
+
+            // Base Providers
+            if (isLocal) {
+                // HF (Always available)
+                baseList.filter(m => m.provider === 'huggingface').forEach(m => valid.add(m.value));
+                
+                // Gitee (Needs token)
+                if (giteeToken || localStorage.getItem('giteeToken')) {
+                     baseList.filter(m => m.provider === 'gitee').forEach(m => valid.add(m.value));
+                }
+                
+                // MS (Needs token)
+                if (msToken || localStorage.getItem('msToken')) {
+                     baseList.filter(m => m.provider === 'modelscope').forEach(m => valid.add(m.value));
+                }
+            }
+
+            // Custom Providers
+            if (isServer) {
+                customProviders.forEach(cp => {
+                    const models = cp.models[type];
+                    if (models) {
+                        models.forEach(m => valid.add(`${cp.id}:${m.id}`));
+                    }
+                });
+            }
+            return Array.from(valid);
+        };
+
+        // 1. Validate Creation Model
+        const baseCreationList: UnifiedModelOption[] = [
+            ...HF_MODEL_OPTIONS.map(m => ({ label: m.label, value: `huggingface:${m.value}`, provider: 'huggingface' as ProviderOption })),
+            ...GITEE_MODEL_OPTIONS.map(m => ({ label: m.label, value: `gitee:${m.value}`, provider: 'gitee' as ProviderOption })),
+            ...MS_MODEL_OPTIONS.map(m => ({ label: m.label, value: `modelscope:${m.value}`, provider: 'modelscope' as ProviderOption }))
+        ];
+        const validCreation = getValidValues('generate', baseCreationList);
+        // Only reset if we have options but current is invalid
+        if (validCreation.length > 0) {
+            if (creationModelValue && !validCreation.includes(creationModelValue)) {
+                setCreationModelValue(validCreation[0]);
+            } else if (!creationModelValue) {
+                setCreationModelValue(validCreation[0]);
+            }
+        }
+
+        // 2. Validate Edit Model
+        const validEdit = getValidValues('edit', EDIT_MODELS);
+        if (validEdit.length > 0) {
+            if (editModelValue && !validEdit.includes(editModelValue)) {
+                setEditModelValue(validEdit[0]);
+            } else if (!editModelValue) {
+                setEditModelValue(validEdit[0]);
+            }
+        }
+
+        // 3. Validate Live Model
+        const validLive = getValidValues('video', LIVE_MODELS);
+        if (validLive.length > 0) {
+            if (liveModelValue && !validLive.includes(liveModelValue)) {
+                setLiveModelValue(validLive[0]);
+            } else if (!liveModelValue) {
+                setLiveModelValue(validLive[0]);
+            }
+        }
+
+        // 4. Validate Text Model
+        const validText = getValidValues('text', TEXT_MODELS);
+        if (validText.length > 0) {
+            if (textModelValue && !validText.includes(textModelValue)) {
+                setTextModelValue(validText[0]);
+            } else if (!textModelValue) {
+                setTextModelValue(validText[0]);
+            }
+        }
+
+        // 5. Validate Upscaler Model
+        const validUpscaler = getValidValues('upscaler', UPSCALER_MODELS);
+        if (validUpscaler.length > 0) {
+            if (upscalerModelValue && !validUpscaler.includes(upscalerModelValue)) {
+                setUpscalerModelValue(validUpscaler[0]);
+            } else if (!upscalerModelValue) {
+                setUpscalerModelValue(validUpscaler[0]);
+            }
+        }
+
+    }, [customProviders, serviceMode, giteeToken, msToken]);
 
     // Handle Service Mode Change
     const handleServiceModeChange = (newMode: ServiceMode) => {
@@ -243,7 +344,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
     };
 
     // Group Options including Custom Providers based on Service Mode
-    const getAvailableModelGroups = (baseList: UnifiedModelOption[], type: 'generate' | 'edit' | 'video' | 'text'): OptionGroup[] => {
+    const getAvailableModelGroups = (baseList: UnifiedModelOption[], type: 'generate' | 'edit' | 'video' | 'text' | 'upscaler'): OptionGroup[] => {
         const groups: OptionGroup[] = [];
         const isServer = serviceMode === 'server';
         const isLocal = serviceMode === 'local';
@@ -371,8 +472,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
             const response = await fetch(url, { headers });
             if (!response.ok) throw new Error('Fetch failed');
             
-            const data: RemoteModelList = await response.json();
-            setFetchedModels(data);
+            const rawData = await response.json();
+            const transformedData = transformModelList(rawData);
+            
+            setFetchedModels(transformedData);
             setFetchStatus('success');
         } catch (e) {
             console.error("Failed to fetch models", e);
@@ -455,9 +558,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
             }
             const response = await fetch(url, { headers });
             if (!response.ok) throw new Error('Fetch failed');
-            const data = await response.json();
+            const rawData = await response.json();
+            const transformedData = transformModelList(rawData);
             
-            handleUpdateCustomProvider(id, { models: data });
+            handleUpdateCustomProvider(id, { models: transformedData });
             
             // Success Feedback
             setRefreshSuccessProviders(prev => ({ ...prev, [id]: true }));
@@ -493,6 +597,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
         saveEditModelConfig(editModelValue);
         saveLiveModelConfig(liveModelValue);
         saveTextModelConfig(textModelValue);
+        saveUpscalerModelConfig(upscalerModelValue);
         
         // Save Service Mode
         saveServiceMode(serviceMode);
@@ -728,6 +833,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                 {/* Tab 1: General */}
                                 {tab.id === 'general' && (
                                     <div className="space-y-6">
+                                        {/* ... General Tab content (Language, Service Mode, etc.) ... */}
                                         {/* Language Selector */}
                                         <div>
                                             <label className="flex items-center gap-2 text-xs font-medium text-white/80 mb-2">
@@ -862,6 +968,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
 
                                 {/* Tab 2: Provider */}
                                 {tab.id === 'provider' && (
+                                    // ... Existing provider tab logic ...
                                     <div>
                                         {/* Default Providers - Only show if mode supports it */}
                                         {showBaseProviders && (
@@ -985,7 +1092,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                                                             (cp.models.generate?.length || 0) + 
                                                                             (cp.models.edit?.length || 0) + 
                                                                             (cp.models.video?.length || 0) + 
-                                                                            (cp.models.text?.length || 0)
+                                                                            (cp.models.text?.length || 0) +
+                                                                            (cp.models.upscaler?.length || 0)
                                                                         ))}
                                                                      </div>
                                                                      <button 
@@ -1061,7 +1169,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                                                             (fetchedModels.generate?.length || 0) + 
                                                                             (fetchedModels.edit?.length || 0) + 
                                                                             (fetchedModels.video?.length || 0) + 
-                                                                            (fetchedModels.text?.length || 0)
+                                                                            (fetchedModels.text?.length || 0) +
+                                                                            (fetchedModels.upscaler?.length || 0)
                                                                         ))}
                                                                     </div>
                                                                 )}
@@ -1094,15 +1203,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                 {/* Tab 3: Models Selection */}
                                 {tab.id === 'models' && (
                                     <div className="space-y-6">
-                                        {/* Creation Model */}
-                                        <Select
+                                        {/* Creation Model - Temporarily Hidden */}
+                                        {/* <Select
                                             label={t.model_creation}
                                             value={creationModelValue}
                                             onChange={setCreationModelValue}
                                             options={getCreationModelGroups()}
                                             icon={<Sparkles className="w-4 h-4" />}
                                             dense
-                                        />
+                                        /> */}
 
                                         {/* Edit Model */}
                                         <Select
@@ -1124,6 +1233,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                             dense
                                         />
 
+                                        {/* Upscaler Model - Added per request */}
+                                        <Select
+                                            label={t.upscale}
+                                            value={upscalerModelValue}
+                                            onChange={setUpscalerModelValue}
+                                            options={getAvailableModelGroups(UPSCALER_MODELS, 'upscaler')}
+                                            icon={<Plus className="w-4 h-4" />}
+                                            dense
+                                        />
+
                                         {/* Text Model */}
                                         <Select
                                             label={t.model_text}
@@ -1136,6 +1255,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                     </div>
                                 )}
 
+                                {/* Rest of the tabs... (prompt, live settings, s3, webdav) - unchanged logic */}
                                 {/* Tab 4: Prompt */}
                                 {tab.id === 'prompt' && (
                                     <div className="space-y-6">
