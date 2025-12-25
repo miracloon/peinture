@@ -89,11 +89,6 @@ export default function App() {
     return (saved as AspectRatioOption) || '1:1';
   });
 
-  const [enableHD, setEnableHD] = useState<boolean>(() => {
-    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('app_enable_hd') : null;
-    return saved === 'true';
-  });
-
   // Effects to save settings
   useEffect(() => {
     localStorage.setItem('app_provider', provider);
@@ -106,10 +101,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('app_aspect_ratio', aspectRatio);
   }, [aspectRatio]);
-
-  useEffect(() => {
-    localStorage.setItem('app_enable_hd', String(enableHD));
-  }, [enableHD]);
 
   // --- Persistence Logic End ---
 
@@ -544,20 +535,23 @@ export default function App() {
       const gsConfig = getGuidanceScaleConfig(model, provider);
       const currentGuidanceScale = gsConfig ? guidanceScale : undefined;
 
+      // Always request HD if the service supports it, removing the UI toggle
+      const requestHD = true;
+
       let result;
 
       if (provider === 'gitee') {
-         result = await generateGiteeImage(model, finalPrompt, aspectRatio, seedNumber, steps, enableHD, currentGuidanceScale);
+         result = await generateGiteeImage(model, finalPrompt, aspectRatio, seedNumber, steps, requestHD, currentGuidanceScale);
       } else if (provider === 'modelscope') {
-         result = await generateMSImage(model, finalPrompt, aspectRatio, seedNumber, steps, enableHD, currentGuidanceScale);
+         result = await generateMSImage(model, finalPrompt, aspectRatio, seedNumber, steps, requestHD, currentGuidanceScale);
       } else if (provider === 'huggingface') {
-         result = await generateImage(model, finalPrompt, aspectRatio, seedNumber, enableHD, steps, currentGuidanceScale);
+         result = await generateImage(model, finalPrompt, aspectRatio, seedNumber, requestHD, steps, currentGuidanceScale);
       } else {
          // Custom Provider
          const customProviders = getCustomProviders();
          const activeProvider = customProviders.find(p => p.id === provider);
          if (activeProvider) {
-             result = await generateCustomImage(activeProvider, model, finalPrompt, aspectRatio, seedNumber, steps, currentGuidanceScale, enableHD);
+             result = await generateCustomImage(activeProvider, model, finalPrompt, aspectRatio, seedNumber, steps, currentGuidanceScale, requestHD);
          } else {
              throw new Error("Invalid provider");
          }
@@ -604,7 +598,7 @@ export default function App() {
     setSeed('');
     const config = getModelConfig(provider, model);
     setSteps(config.default);
-    setEnableHD(false);
+    // Removed setEnableHD(false);
     setCurrentImage(null);
     setIsComparing(false);
     setTempUpscaledImage(null);
@@ -1201,8 +1195,6 @@ export default function App() {
                             setGuidanceScale={setGuidanceScale}
                             seed={seed}
                             setSeed={setSeed}
-                            enableHD={enableHD}
-                            setEnableHD={setEnableHD}
                             t={t}
                             aspectRatioOptions={aspectRatioOptions}
                         />

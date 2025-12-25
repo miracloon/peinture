@@ -126,6 +126,7 @@ export const translations = {
     testing: "Testing...",
     test_success: "Connection Successful",
     test_fail: "Connection Failed",
+    mixed_content_error: "Security Error: Cannot connect to HTTP WebDAV server from HTTPS website.",
 
     // Live Settings
     videoPrompt: "Live Prompt",
@@ -436,6 +437,7 @@ export const translations = {
     testing: "测试中...",
     test_success: "连接成功",
     test_fail: "连接失败",
+    mixed_content_error: "安全错误：无法从 HTTPS 网站连接到 HTTP WebDAV 服务器。",
 
     // Live Settings
     videoPrompt: "Live 提示词",

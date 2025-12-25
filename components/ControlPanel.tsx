@@ -28,8 +28,6 @@ interface ControlPanelProps {
     setGuidanceScale: (val: number) => void;
     seed: string;
     setSeed: (val: string) => void;
-    enableHD: boolean;
-    setEnableHD: (val: boolean) => void;
     t: any;
     aspectRatioOptions: { value: string; label: string }[];
 }
@@ -47,8 +45,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     setGuidanceScale,
     seed,
     setSeed,
-    enableHD,
-    setEnableHD,
     t,
     aspectRatioOptions
 }) => {
@@ -206,23 +202,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 onChange={onModelChange}
                 options={modelOptions}
                 icon={<Cpu className="w-5 h-5" />}
-                headerContent={
-                    (Z_IMAGE_MODELS.includes(model) || FLUX_MODELS.includes(model)) && (
-                        <div className="flex items-center gap-2 animate-in fade-in duration-300">
-                            <span className="text-xs font-medium text-white/50">{t.hd}</span>
-                            <Tooltip content={enableHD ? t.hdEnabled : t.hdDisabled}>
-                                <button
-                                    onClick={() => setEnableHD(!enableHD)}
-                                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500/50 ${enableHD ? 'bg-purple-600' : 'bg-white/10'}`}
-                                >
-                                    <span
-                                        className={`${enableHD ? 'translate-x-4' : 'translate-x-1'} inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform`}
-                                    />
-                                </button>
-                            </Tooltip>
-                        </div>
-                    )
-                }
             />
 
             {/* Aspect Ratio */}

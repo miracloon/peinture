@@ -627,13 +627,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
     };
     
     const handleTestWebDAV = async () => {
+        // Mixed Content Check
+        if (window.location.protocol === 'https:' && webdavConfig.url.startsWith('http:')) {
+            setTestWebDAVResult({ success: false, message: t.mixed_content_error });
+            return;
+        }
+
         setIsTestingWebDAV(true);
         setTestWebDAVResult(null);
         try {
             const result = await testWebDAVConnection(webdavConfig);
-            setTestWebDAVResult(result);
+            setTestWebDAVResult({
+                success: result.success,
+                message: result.success ? t.test_success : `${t.test_fail}: ${result.message}`
+            });
         } catch (e) {
-            setTestWebDAVResult({ success: false, message: "Unknown error occurred" });
+            setTestWebDAVResult({ success: false, message: t.test_fail });
         } finally {
             setIsTestingWebDAV(false);
         }
@@ -644,9 +653,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
         setTestS3Result(null);
         try {
             const result = await testS3Connection(s3Config);
-            setTestS3Result(result);
+            setTestS3Result({
+                success: result.success,
+                message: result.success ? t.test_success : `${t.test_fail}: ${result.message}`
+            });
         } catch (e) {
-            setTestS3Result({ success: false, message: "Unknown error occurred" });
+            setTestS3Result({ success: false, message: t.test_fail });
         } finally {
             setIsTestingS3(false);
         }

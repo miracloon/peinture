@@ -77,7 +77,7 @@ export const CloudGallery: React.FC<CloudGalleryProps> = ({ t, handleUploadToS3,
 
                 // Fetch blob and create ObjectURL (handles signed S3 requests via fetchCloudBlob)
                 try {
-                    const blob = await fetchCloudBlob(file.url as string);
+                    const blob = await fetchCloudBlob(String(file.url));
                     if (!isCancelled) {
                         const url = URL.createObjectURL(blob);
                         setLocalUrls(prev => ({ ...prev, [file.key]: url }));

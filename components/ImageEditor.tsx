@@ -136,7 +136,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 if (galleryLocalUrls[file.key]) continue;
 
                 try {
-                    const blob = await fetchCloudBlob(file.url as string);
+                    const blob = await fetchCloudBlob(String(file.url));
                     if (!isCancelled) {
                         const url = URL.createObjectURL(blob);
                         setGalleryLocalUrls(prev => ({ ...prev, [file.key]: url }));
