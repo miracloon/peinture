@@ -303,7 +303,7 @@ export const translatePrompt = async (text: string): Promise<string> => {
     }
 };
 
-export const optimizeEditPrompt = async (imageBase64: string, prompt: string): Promise<string> => {
+export const optimizeEditPrompt = async (imageBase64: string, prompt: string, model: string = 'openai-fast'): Promise<string> => {
   try {
     // Pollinations AI OpenAI-compatible endpoint
     const response = await fetch(POLLINATIONS_API_URL, {
@@ -312,7 +312,7 @@ export const optimizeEditPrompt = async (imageBase64: string, prompt: string): P
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai-fast',
+        model: model, // Dynamically use passed model
         messages: [
           {
             role: 'system',
@@ -350,4 +350,93 @@ Only reply with the optimized prompt text. Do not add any conversational content
     console.error("Optimize Edit Prompt Error:", error);
     throw error;
   }
+};
+
+// --- Unified URL/Blob Utilities ---
+
+export const getProxyUrl = (url: string) => `https://peinture-proxy.9th.xyz/?url=${encodeURIComponent(url)}`;
+
+/**
+ * Unified function to fetch a Blob from a URL.
+ * First tries a direct fetch. If that fails (e.g. CORS), falls back to using the proxy.
+ */
+export const fetchBlob = async (url: string): Promise<Blob> => {
+    // Handle data/blob URLs locally without fetching
+    if (url.startsWith('data:') || url.startsWith('blob:')) {
+        try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`Local fetch failed: ${res.status}`);
+            return res.blob();
+        } catch (e) {
+            console.warn("Local blob/data URL fetch failed", e);
+            throw new Error("Local resource not found");
+        }
+    }
+
+    try {
+        const response = await fetch(url, { cache: 'no-cache' });
+        if (!response.ok) throw new Error(`Direct fetch failed: ${response.status}`);
+        return await response.blob();
+    } catch (e) {
+        console.warn("Direct fetch failed, trying proxy...", e);
+        const proxyUrl = getProxyUrl(url);
+        const proxyResponse = await fetch(proxyUrl);
+        if (!proxyResponse.ok) throw new Error(`Proxy fetch failed: ${proxyResponse.status}`);
+        return await proxyResponse.blob();
+    }
+};
+
+/**
+ * Unified function to download an image from a URL.
+ * - PC: Uses <a> tag with 'download' attribute.
+ * - Mobile: Fetches Blob -> Tries navigator.share -> Falls back to ObjectURL download.
+ */
+export const downloadImage = async (url: string, fileName: string) => {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    if (!isMobile) {
+        // Desktop: Direct download via <a> tag
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        link.target = '_blank'; // Fail-safe for CORS if download attribute is ignored
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } else {
+        // Mobile: Fetch Blob -> Share -> ObjectURL
+        try {
+            const blob = await fetchBlob(url);
+            const file = new File([blob], fileName, { type: blob.type });
+            const nav = navigator as any;
+
+            if (nav.canShare && nav.canShare({ files: [file] })) {
+                try {
+                    await nav.share({
+                        files: [file],
+                        title: 'Peinture Image',
+                    });
+                    return;
+                } catch (e: any) {
+                    if (e.name === 'AbortError') return;
+                    console.warn("Share failed, falling back to download", e);
+                }
+            }
+
+            // Fallback to ObjectURL download
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
+        } catch (e) {
+            console.error("Download failed", e);
+            // Final fallback: just open in new tab
+            window.open(url, '_blank');
+        }
+    }
 };

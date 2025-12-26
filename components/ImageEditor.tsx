@@ -10,7 +10,7 @@ import {
     Sparkles, 
     ArrowRight,
     Upload,
-    X,
+    X, 
     LogOut,
     Keyboard,
     Minus,
@@ -30,10 +30,10 @@ import {
 } from 'lucide-react';
 import { Tooltip } from './Tooltip';
 import { editImageQwen } from '../services/hfService';
-import { editImageGitee } from '../services/giteeService';
-import { editImageMS } from '../services/msService';
-import { editImageCustom } from '../services/customService';
-import { optimizeEditPrompt, getEditModelConfig, getCustomProviders } from '../services/utils';
+import { editImageGitee, optimizePromptGitee } from '../services/giteeService';
+import { editImageMS, optimizePromptMS } from '../services/msService';
+import { editImageCustom, optimizePromptCustom } from '../services/customService';
+import { optimizeEditPrompt, getEditModelConfig, getCustomProviders, fetchBlob, downloadImage, getTextModelConfig } from '../services/utils';
 import { isStorageConfigured, listCloudFiles, fetchCloudBlob, getStorageType } from '../services/storageService';
 import { ProviderOption, GeneratedImage, CloudFile } from '../types';
 import { PROVIDER_OPTIONS } from '../constants';
@@ -57,6 +57,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     const snapshotRef = useRef<ImageData | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const activeObjectUrlRef = useRef<string | null>(null);
     
     // Core State
     const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -159,17 +160,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     useEffect(() => {
         return () => {
             Object.values(galleryLocalUrls).forEach(url => URL.revokeObjectURL(url));
+            if (activeObjectUrlRef.current) {
+                URL.revokeObjectURL(activeObjectUrlRef.current);
+            }
         };
     }, []);
 
     // Initialize provider from unified config
     useEffect(() => {
         const config = getEditModelConfig();
-        // Since setProvider is passed from parent, we can sync if needed, 
-        // OR we just use the config directly in generate.
-        // The UI provider selector updates `provider` prop via `setProvider`.
-        // If we want the Unified Settings to take precedence, we should rely on `getEditModelConfig()` during generation.
-        // However, the UI dropdown shows `provider`. We can sync it on mount.
         if (config.provider) {
             setProvider(config.provider as ProviderOption);
         }
@@ -223,13 +222,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         };
     }, []);
 
-    // Helper to proxy URLs to bypass CORS restrictions
-    const getProxyUrl = (url: string) => {
-        if (!url) return '';
-        // Check if it's a data URL or blob URL (local), return as is
-        if (url.startsWith('data:') || url.startsWith('blob:')) return url;
-        
-        return `https://peinture-proxy.9th.xyz/?url=${url}`;
+    // Helper to cleanup active object URL
+    const cleanupActiveObjectUrl = () => {
+        if (activeObjectUrlRef.current) {
+            URL.revokeObjectURL(activeObjectUrlRef.current);
+            activeObjectUrlRef.current = null;
+        }
     };
 
     // --- History Management ---
@@ -271,72 +269,27 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     const processFile = useCallback((file: File) => {
         if (!file.type.startsWith('image/')) return;
         setIsSourceNSFW(file.name.toUpperCase().includes('.NSFW'));
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            if (event.target?.result) {
-                const img = new Image();
-                img.crossOrigin = 'anonymous';
-                img.onload = () => {
-                    setImage(img);
-                    setGeneratedResult(null);
-                    if (canvasRef.current && containerRef.current) {
-                         canvasRef.current.width = img.width;
-                         canvasRef.current.height = img.height;
-                         const ctx = canvasRef.current.getContext('2d');
-                         if (ctx) {
-                             ctx.clearRect(0, 0, img.width, img.height);
-                             const initialData = ctx.getImageData(0, 0, img.width, img.height);
-                             setHistoryStates([initialData]); 
-                             setHistoryIndex(0);
-                         }
-                         const { width: contW, height: contH } = containerRef.current.getBoundingClientRect();
-                         const scaleH = contH / img.height;
-                         const scaleW = contW / img.width;
-                         const newScale = Math.min(scaleH, scaleW, 1);
-                         setScale(newScale);
-                         setOffset({
-                             x: (contW - img.width * newScale) / 2,
-                             y: (contH - img.height * newScale) / 2
-                         });
-                    }
-                };
-                img.src = event.target.result as string;
-            }
-        };
-        reader.readAsDataURL(file);
-    }, []);
+        
+        // Cleanup previous Blob URL if exists
+        cleanupActiveObjectUrl();
 
-    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            processFile(e.target.files[0]);
-            e.target.value = '';
-        }
-    };
+        const objectUrl = URL.createObjectURL(file);
+        activeObjectUrlRef.current = objectUrl;
 
-    const loadEditorImage = (url: string) => {
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        // Remove crossOrigin setting for local blob URLs to avoid CORS issues
         img.onload = () => {
             setImage(img);
             setGeneratedResult(null);
-            setCommand('');
-            setAttachedImages([]);
             if (canvasRef.current && containerRef.current) {
                  canvasRef.current.width = img.width;
                  canvasRef.current.height = img.height;
                  const ctx = canvasRef.current.getContext('2d');
                  if (ctx) {
                      ctx.clearRect(0, 0, img.width, img.height);
-                     try {
-                        const initialData = ctx.getImageData(0, 0, img.width, img.height);
-                        setHistoryStates([initialData]); 
-                        setHistoryIndex(0);
-                     } catch (e) {
-                        // Outputting system error messages is prohibited.
-                        console.error("Failed to read image data (CORS restriction):");
-                        setHistoryStates([]);
-                        setHistoryIndex(-1);
-                     }
+                     const initialData = ctx.getImageData(0, 0, img.width, img.height);
+                     setHistoryStates([initialData]); 
+                     setHistoryIndex(0);
                  }
                  const { width: contW, height: contH } = containerRef.current.getBoundingClientRect();
                  const scaleH = contH / img.height;
@@ -350,9 +303,76 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             }
         };
         img.onerror = () => {
-            console.error("Failed to load image via proxy:", url);
+            console.error("Failed to load image from file");
+            cleanupActiveObjectUrl();
         };
-        img.src = provider === 'gitee' || provider === 'modelscope' ? getProxyUrl(url) : url;
+        img.src = objectUrl;
+    }, []);
+
+    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            processFile(e.target.files[0]);
+            e.target.value = '';
+        }
+    };
+
+    const loadEditorImage = async (url: string) => {
+        try {
+            // Use unified fetchBlob to handle potential CORS issues via proxy fallback
+            const blob = await fetchBlob(url);
+            
+            // Cleanup previous active URL
+            cleanupActiveObjectUrl();
+
+            const objectUrl = URL.createObjectURL(blob);
+            activeObjectUrlRef.current = objectUrl;
+            
+            const img = new Image();
+            // Removed crossOrigin = 'anonymous' for blob URLs created locally to prevent loading issues
+            
+            img.onload = () => {
+                setImage(img);
+                setGeneratedResult(null);
+                setCommand('');
+                setAttachedImages([]);
+                if (canvasRef.current && containerRef.current) {
+                     canvasRef.current.width = img.width;
+                     canvasRef.current.height = img.height;
+                     const ctx = canvasRef.current.getContext('2d');
+                     if (ctx) {
+                         ctx.clearRect(0, 0, img.width, img.height);
+                         try {
+                            const initialData = ctx.getImageData(0, 0, img.width, img.height);
+                            setHistoryStates([initialData]); 
+                            setHistoryIndex(0);
+                         } catch (e) {
+                            console.error("Failed to read image data (CORS restriction):");
+                            setHistoryStates([]);
+                            setHistoryIndex(-1);
+                         }
+                     }
+                     const { width: contW, height: contH } = containerRef.current.getBoundingClientRect();
+                     const scaleH = contH / img.height;
+                     const scaleW = contW / img.width;
+                     const newScale = Math.min(scaleH, scaleW, 1);
+                     setScale(newScale);
+                     setOffset({
+                         x: (contW - img.width * newScale) / 2,
+                         y: (contH - img.height * newScale) / 2
+                     });
+                }
+                // Do NOT revoke object URL immediately to allow React render to use it
+            };
+            img.onerror = () => {
+                console.error("Failed to load image via object URL:", url);
+                cleanupActiveObjectUrl();
+                alert(t.error_api_connection || "Failed to load image");
+            };
+            img.src = objectUrl;
+        } catch (e) {
+            console.error("Failed to fetch image for editor:", e);
+            alert(t.error_api_connection || "Failed to fetch image");
+        }
     };
 
     const handleHistorySelect = (historyItem: GeneratedImage) => {
@@ -370,6 +390,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     };
 
     const handleExit = () => {
+        cleanupActiveObjectUrl();
         setImage(null);
         setHistoryStates([]);
         setHistoryIndex(-1);
@@ -421,6 +442,34 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         }
         setContextMenu(null);
     };
+
+    const handleWheel = useCallback((e: WheelEvent) => {
+        e.preventDefault(); 
+        e.stopPropagation(); 
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const cx = rect.width / 2;
+        const cy = rect.height / 2;
+        const delta = e.deltaY > 0 ? 0.95 : 1.05;
+        const newScale = Math.min(Math.max(0.1, scale * delta), 10);
+        const newOffsetX = cx - (cx - offset.x) * (newScale / scale);
+        const newOffsetY = cy - (cy - offset.y) * (newScale / scale);
+        setScale(newScale);
+        setOffset({ x: newOffsetX, y: newOffsetY });
+    }, [scale, offset]);
+
+    // Attach non-passive wheel listener
+    useEffect(() => {
+        const container = containerRef.current;
+        if (container) {
+            container.addEventListener('wheel', handleWheel, { passive: false });
+        }
+        return () => {
+            if (container) {
+                container.removeEventListener('wheel', handleWheel);
+            }
+        };
+    }, [handleWheel]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -663,32 +712,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
         }
     };
 
-    const handleWheel = (e: React.WheelEvent) => {
-        e.preventDefault(); 
-        e.stopPropagation(); 
-        if (!containerRef.current) return;
-        const rect = containerRef.current.getBoundingClientRect();
-        const cx = rect.width / 2;
-        const cy = rect.height / 2;
-        const delta = e.deltaY > 0 ? 0.95 : 1.05;
-        const newScale = Math.min(Math.max(0.1, scale * delta), 10);
-        const newOffsetX = cx - (cx - offset.x) * (newScale / scale);
-        const newOffsetY = cy - (cy - offset.y) * (newScale / scale);
-        setScale(newScale);
-        setOffset({ x: newOffsetX, y: newOffsetY });
-    };
-
     const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
         if (image) {
             setContextMenu({ x: e.clientX, y: e.clientY });
         }
-    };
-
-    const urlToBlob = async (url: string): Promise<Blob> => {
-        const fetchUrl = provider === 'gitee' || provider === 'modelscope' ? getProxyUrl(url) : url;
-        const response = await fetch(fetchUrl);
-        return await response.blob();
     };
 
     const canvasToBlob = (canvas: HTMLCanvasElement): Promise<Blob> => {
@@ -768,107 +796,24 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     const handleDownloadResult = async (url: string) => {
         setIsDownloading(true);
         let fileName = `edited_image_${Date.now()}`;
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-        if (provider === 'gitee' || provider === 'modelscope') {
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = fileName;
-            if (isMobile) link.target = "_blank"
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
+        
         try {
-            const fetchUrl = url; 
-            const response = await fetch(fetchUrl);
-            if (!response.ok) throw new Error('Network response was not ok');
-            let blob = await response.blob();
-            if (blob.type.startsWith('image') && (blob.type === 'image/webp' || url.includes('.webp'))) {
-                try {
-                    const img = new Image();
-                    img.crossOrigin = "Anonymous";
-                    const blobUrl = URL.createObjectURL(blob);
-                    await new Promise((resolve, reject) => {
-                        img.onload = resolve;
-                        img.onerror = reject;
-                        img.src = blobUrl;
-                    });
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.naturalWidth;
-                    canvas.height = img.naturalHeight;
-                    const ctx = canvas.getContext('2d');
-                    if (ctx) {
-                        ctx.drawImage(img, 0, 0);
-                        const pngBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
-                        if (pngBlob) {
-                            blob = pngBlob;
-                            fileName = fileName.replace(/\.webp$/i, '.png');
-                            if (!fileName.endsWith('.png')) fileName += '.png';
-                        }
-                    }
-                    URL.revokeObjectURL(blobUrl);
-                } catch (e) {
-                    // Outputting system error messages is prohibited.
-                    console.warn("Conversion failed, using original blob");
-                }
-            }
-
-            // --- Filename logic start ---
-            const blobType = blob.type.split('/')[1] || 'png';
+            // Filename prep
+            let base = fileName;
+            let ext = '.png';
             
-            // Determine if filename already has an extension
-            const hasExtension = fileName.match(/\.[a-zA-Z0-9]+$/);
-            let ext = hasExtension ? hasExtension[0] : `.${blobType}`;
-            let base = hasExtension ? fileName.replace(/\.[a-zA-Z0-9]+$/, '') : fileName;
-
-            // Inject NSFW suffix if needed
+            // Check original URL/Blob for details if possible, but unified logic suggests standard download
             if (isSourceNSFW && !base.toUpperCase().endsWith('.NSFW')) {
                 base += '.NSFW';
             }
-            
             fileName = base + ext;
-            // --- Filename logic end ---
 
-            if (isMobile) {
-                const file = new File([blob], fileName, { type: blob.type });
-                const nav = navigator as any;
-                if (nav.canShare && nav.canShare({ files: [file] })) {
-                    try {
-                        await nav.share({ files: [file], title: 'Peinture AI Asset' });
-                        setIsDownloading(false);
-                        return;
-                    } catch (e) {
-                        // Outputting system error messages is prohibited.
-                        if (e.name === 'AbortError') {
-                            setIsDownloading(false);
-                            return;
-                        }
-                    }
-                }
-            }
-            const blobUrl = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+            // Use unified download utility
+            await downloadImage(url, fileName);
+
         } catch (e) {
-            console.error("Download failed, falling back to window.open", e);
-            try {
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = fileName;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            } catch (err) {
-                // Outputting system error messages is prohibited.
-                window.open(url, '_blank');
-            }
+            console.error("Download failed", e);
+            window.open(url, '_blank');
         } finally {
             setIsDownloading(false);
         }
@@ -877,7 +822,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
     const onCloudUpload = async () => {
         if (!generatedResult || !handleUploadToS3) return;
         try {
-            const blob = await urlToBlob(generatedResult);
+            // Use unified fetchBlob which handles proxy fallback
+            const blob = await fetchBlob(generatedResult);
             // Construct metadata object
             const metadata = {
                 prompt: command,
@@ -923,7 +869,33 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 ctx.drawImage(mergedCanvas, 0, 0, w, h);
             }
             const base64 = tempCanvas.toDataURL('image/jpeg', 0.8); 
-            const optimized = await optimizeEditPrompt(base64, command);
+            
+            // NEW LOGIC: Dispatch optimization based on Text Model setting
+            const textConfig = getTextModelConfig();
+            let optimized = '';
+
+            if (textConfig.provider === 'huggingface') {
+                 // Use optimizeEditPrompt (Vision supported via Pollinations) with dynamic model
+                 optimized = await optimizeEditPrompt(base64, command, textConfig.model);
+            } else if (textConfig.provider === 'gitee') {
+                 // Use text-only prompt optimization
+                 optimized = await optimizePromptGitee(command);
+            } else if (textConfig.provider === 'modelscope') {
+                 // Use text-only prompt optimization
+                 optimized = await optimizePromptMS(command);
+            } else {
+                 // Custom Provider
+                 const customProviders = getCustomProviders();
+                 const activeCustom = customProviders.find(p => p.id === textConfig.provider);
+                 if (activeCustom) {
+                     // Custom optimization (usually text-only)
+                     optimized = await optimizePromptCustom(activeCustom, textConfig.model, command);
+                 } else {
+                     // Fallback to default Pollinations
+                     optimized = await optimizeEditPrompt(base64, command);
+                 }
+            }
+
             if (optimized) setCommand(optimized);
         } catch (e) {
             // Outputting system error messages is prohibited.
@@ -950,7 +922,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             const imageBlobs: Blob[] = [];
             let promptSuffix = `\n${t.prompt_original_image}`;
             let currentImageIndexInAPI = 1;
-            const originalBlob = await urlToBlob(image.src);
+            // Use fetchBlob for robustness
+            const originalBlob = await fetchBlob(image.src);
             imageBlobs.push(originalBlob);
             if (hasDrawings) {
                 const mergedCanvas = getMergedLayer();
@@ -963,7 +936,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 }
             }
             for (let i = 0; i < attachedImages.length; i++) {
-                const refBlob = dataURLToBlob(attachedImages[i]);
+                // attachedImages are dataURLs, fetchBlob handles this fine too
+                const refBlob = await fetchBlob(attachedImages[i]);
                 imageBlobs.push(refBlob);
                 currentImageIndexInAPI++;
                 const refNumInUI = i + 1;
@@ -989,6 +963,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 const customProviders = getCustomProviders();
                 const activeCustom = customProviders.find(p => p.id === activeProvider);
                 if (activeCustom) {
+                    // Explicitly pass config.model
                     result = await editImageCustom(activeCustom, config.model, imageBlobs, finalPrompt, undefined, undefined, undefined);
                 } else {
                     // Fallback to HF if config is stale
@@ -1141,7 +1116,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                     onTouchStart={handleTouchStart}
                     onTouchMove={handleTouchMove}
                     onTouchEnd={handleMouseUp}
-                    onWheel={handleWheel}
+                    // onWheel logic removed from here, handled via ref
                 >
                     {image && (
                         <img 
@@ -1165,55 +1140,73 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                                 beforeImage={image.src} 
                                 afterImage={generatedResult} 
                                 alt="Comparison" 
-                                labelBefore={t.compare_original}
+                                labelBefore={t.compare_original} 
                                 labelAfter={t.compare_edited}
                              />
                              
                              <div className="absolute bottom-6 inset-x-0 flex justify-center pointer-events-none z-40">
-                                <div className="pointer-events-auto flex items-center gap-3 animate-in slide-in-from-bottom-4 duration-300">
-                                    <button
-                                        onClick={() => setGeneratedResult(null)}
-                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white/80 hover:bg-black/70 hover:text-white transition-all shadow-xl hover:shadow-purple-900/10 hover:border-purple-500/30"
-                                    >
-                                        <RotateCcw className="w-5 h-5 text-purple-400" />
-                                        <span className="font-medium text-sm">{t.re_edit}</span>
-                                    </button>
+                                <div className="pointer-events-auto max-w-[90%] overflow-x-auto scrollbar-hide rounded-2xl bg-black/60 backdrop-blur-md border border-white/10 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+                                    <div className="flex items-center gap-1 p-1.5 min-w-max">
+                                        
+                                        {/* Re-edit */}
+                                        <Tooltip content={t.re_edit}>
+                                            <button
+                                                onClick={() => setGeneratedResult(null)}
+                                                className="flex items-center justify-center w-10 h-10 rounded-xl text-white/70 hover:text-purple-400 hover:bg-white/10 transition-all"
+                                            >
+                                                <RotateCcw className="w-5 h-5" />
+                                            </button>
+                                        </Tooltip>
 
-                                    {/* Upload Button */}
-                                    {isStorageEnabled && provider !== 'modelscope' && (
-                                        <button
-                                            onClick={onCloudUpload}
-                                            disabled={isUploading}
-                                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white/80 hover:bg-black/70 hover:text-white transition-all shadow-xl hover:shadow-green-900/10 hover:border-green-500/30 ${isUploading ? 'cursor-not-allowed opacity-70' : ''}`}
-                                        >
-                                            {isUploading ? (
-                                                <Loader2 className="w-5 h-5 animate-spin text-green-400" />
-                                            ) : (
-                                                <CloudUpload className="w-5 h-5 text-green-400" />
-                                            )}
-                                            <span className="font-medium text-sm">{isUploading ? t.uploading : t.upload}</span>
-                                        </button>
-                                    )}
+                                        <div className="w-px h-5 bg-white/10 mx-1"></div>
 
-                                    <button
-                                        onClick={() => handleDownloadResult(generatedResult)}
-                                        disabled={isDownloading}
-                                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white/80 hover:bg-black/70 hover:text-white transition-all shadow-xl hover:shadow-blue-900/10 hover:border-blue-500/30 ${isDownloading ? 'cursor-not-allowed opacity-70' : ''}`}
-                                    >
-                                        {isDownloading ? (
-                                            <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-                                        ) : (
-                                            <Download className="w-5 h-5 text-blue-400" />
+                                        {/* Upload Button */}
+                                        {isStorageEnabled && provider !== 'modelscope' && (
+                                            <>
+                                                <Tooltip content={isUploading ? t.uploading : t.upload}>
+                                                    <button
+                                                        onClick={onCloudUpload}
+                                                        disabled={isUploading}
+                                                        className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${isUploading ? 'text-green-400 bg-green-500/10 cursor-not-allowed' : 'text-white/70 hover:text-green-400 hover:bg-white/10'}`}
+                                                    >
+                                                        {isUploading ? (
+                                                            <Loader2 className="w-5 h-5 animate-spin" />
+                                                        ) : (
+                                                            <CloudUpload className="w-5 h-5" />
+                                                        )}
+                                                    </button>
+                                                </Tooltip>
+                                                <div className="w-px h-5 bg-white/10 mx-1"></div>
+                                            </>
                                         )}
-                                        <span className="font-medium text-sm">{t.menu_download}</span>
-                                    </button>
-                                    <button
-                                        onClick={() => setShowExitDialog(true)}
-                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white/80 hover:bg-black/70 hover:text-white transition-all shadow-xl hover:shadow-red-900/10 hover:border-red-500/30"
-                                    >
-                                        <LogOut className="w-5 h-5 text-red-400" />
-                                        <span className="font-medium text-sm">{t.menu_exit}</span>
-                                    </button>
+
+                                        {/* Download */}
+                                        <Tooltip content={t.menu_download}>
+                                            <button
+                                                onClick={() => handleDownloadResult(generatedResult)}
+                                                disabled={isDownloading}
+                                                className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${isDownloading ? 'text-blue-400 bg-blue-500/10 cursor-not-allowed' : 'text-white/70 hover:text-blue-400 hover:bg-white/10'}`}
+                                            >
+                                                {isDownloading ? (
+                                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                                ) : (
+                                                    <Download className="w-5 h-5" />
+                                                )}
+                                            </button>
+                                        </Tooltip>
+
+                                        <div className="w-px h-5 bg-white/10 mx-1"></div>
+
+                                        {/* Exit */}
+                                        <Tooltip content={t.menu_exit}>
+                                            <button
+                                                onClick={() => setShowExitDialog(true)}
+                                                className="flex items-center justify-center w-10 h-10 rounded-xl text-white/70 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                                            >
+                                                <LogOut className="w-5 h-5" />
+                                            </button>
+                                        </Tooltip>
+                                    </div>
                                 </div>
                              </div>
                         </div>

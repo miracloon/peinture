@@ -4,7 +4,7 @@ import { generateImage, upscaler, createVideoTaskHF, uploadToGradio, QWEN_IMAGE_
 import { generateGiteeImage, optimizePromptGitee, createVideoTask, getGiteeTaskStatus } from './services/giteeService';
 import { generateMSImage, optimizePromptMS } from './services/msService';
 import { generateCustomImage, generateCustomVideo, optimizePromptCustom, fetchServerModels, getCustomTaskStatus, upscaleImageCustom } from './services/customService';
-import { translatePrompt, generateUUID, getLiveModelConfig, getTextModelConfig, getUpscalerModelConfig, optimizeEditPrompt, getCustomProviders, getVideoSettings, getServiceMode, saveServiceMode, addCustomProvider } from './services/utils';
+import { translatePrompt, generateUUID, getLiveModelConfig, getTextModelConfig, getUpscalerModelConfig, optimizeEditPrompt, getCustomProviders, getVideoSettings, getServiceMode, saveServiceMode, addCustomProvider, fetchBlob, downloadImage } from './services/utils';
 import { uploadToCloud, isStorageConfigured } from './services/storageService';
 import { GeneratedImage, AspectRatioOption, ModelOption, ProviderOption, CloudImage, CustomProvider, ServiceMode } from './types';
 import { HistoryGallery } from './components/HistoryGallery';
@@ -200,31 +200,40 @@ export default function App() {
           
           if (mode === 'server') {
               try {
-                  const models = await fetchServerModels();
-                  // If success, ensure "Server" provider is added
+                  // Attempt to find an existing "Server" provider to reuse its token
+                  const customProviders = getCustomProviders();
+                  const existingServer = customProviders.find(p => p.name === 'Server' && p.apiUrl === '/api');
+                  const storedToken = existingServer?.token;
+
+                  // Call API with stored token (if any)
+                  const models = await fetchServerModels(storedToken);
+                  
+                  // If successful, update or create the "Server" provider in storage
                   const serverProvider: CustomProvider = {
-                      id: generateUUID(), // Should technically be constant to avoid duplicates, but logic handles update
+                      id: existingServer ? existingServer.id : generateUUID(),
                       name: 'Server',
                       apiUrl: '/api',
-                      token: '', // No token needed if successful without 401
+                      token: storedToken || '', // Persist the working token
                       models,
                       enabled: true
                   };
                   
-                  // Check if Server provider already exists to avoid dupes/id changes
-                  const existing = getCustomProviders().find(p => p.name === 'Server' && p.apiUrl === '/api');
-                  if (!existing) {
-                      addCustomProvider(serverProvider);
-                      // Trigger storage event to update control panel
+                  // This updates the storage with fresh models and confirms the token is valid
+                  addCustomProvider(serverProvider);
+                  
+                  // Trigger storage event to update control panel if it wasn't there
+                  if (!existingServer) {
                       window.dispatchEvent(new Event("storage"));
                   }
                   
                   // Force selection of first model if not set
                   if (models.generate && models.generate.length > 0) {
-                      const firstModel = models.generate[0].id;
-                      const providerId = existing ? existing.id : serverProvider.id;
-                      setProvider(providerId);
-                      setModel(firstModel);
+                      // Check if current selection is invalid
+                      const currentProviderIsCustom = customProviders.some(p => p.id === provider);
+                      if (!provider || provider === 'huggingface' || (currentProviderIsCustom && !existingServer)) {
+                          setProvider(serverProvider.id);
+                          setModel(models.generate[0].id);
+                      }
                   }
 
               } catch (e: any) {
@@ -247,22 +256,22 @@ export default function App() {
       setPasswordError(false);
       try {
           const models = await fetchServerModels(accessPassword);
+          
           // Success!
+          // Find existing to preserve ID if possible
+          const customProviders = getCustomProviders();
+          const existing = customProviders.find(p => p.name === 'Server' && p.apiUrl === '/api');
+
           const serverProvider: CustomProvider = {
-              id: generateUUID(),
+              id: existing ? existing.id : generateUUID(),
               name: 'Server',
               apiUrl: '/api',
-              token: accessPassword,
+              token: accessPassword, // Important: Save the new password
               models,
               enabled: true
           };
           
-          // Remove old Server provider if exists (to update token)
-          const existing = getCustomProviders().find(p => p.name === 'Server' && p.apiUrl === '/api');
-          if (existing) {
-              serverProvider.id = existing.id; // Keep ID stable
-          }
-          addCustomProvider(serverProvider);
+          addCustomProvider(serverProvider); // This saves to localStorage
           saveServiceMode('server');
           window.dispatchEvent(new Event("storage"));
           
@@ -475,31 +484,6 @@ export default function App() {
     sessionStorage.setItem('prompt_history', JSON.stringify(newHistory));
   };
 
-  // Helper to convert URL to Blob (handles Proxy logic if needed)
-  const getUrlAsBlob = async (url: string, useProxy = false): Promise<Blob> => {
-      return new Promise((resolve, reject) => {
-          const img = new Image();
-          img.crossOrigin = "Anonymous";
-          img.src = useProxy ? `https://peinture-proxy.9th.xyz/?url=${url}` : url;
-          img.onload = () => {
-               const canvas = document.createElement('canvas');
-               canvas.width = img.naturalWidth;
-               canvas.height = img.naturalHeight;
-               const ctx = canvas.getContext('2d');
-               if (ctx) {
-                   ctx.drawImage(img, 0, 0);
-                   canvas.toBlob(blob => {
-                       if(blob) resolve(blob);
-                       else reject(new Error("Canvas blob conversion failed"));
-                   }, 'image/png');
-               } else {
-                   reject(new Error("Canvas context failed"));
-               }
-          };
-          img.onerror = (e) => reject(new Error("Image load failed for blob conversion"));
-      });
-  };
-
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
 
@@ -647,17 +631,25 @@ export default function App() {
 
   const handleApplyUpscale = () => {
     if (!currentImage || !tempUpscaledImage) return;
-    const updatedImage = { 
-        ...currentImage, 
-        url: tempUpscaledImage, 
-        isUpscaled: true 
+    
+    // Create image element to get new dimensions
+    const img = new Image();
+    img.onload = () => {
+        const updatedImage = { 
+            ...currentImage, 
+            url: tempUpscaledImage, 
+            isUpscaled: true,
+            width: img.naturalWidth,
+            height: img.naturalHeight
+        };
+        setCurrentImage(updatedImage);
+        setHistory(prev => prev.map(img => 
+            img.id === updatedImage.id ? updatedImage : img
+        ));
+        setIsComparing(false);
+        setTempUpscaledImage(null);
     };
-    setCurrentImage(updatedImage);
-    setHistory(prev => prev.map(img => 
-        img.id === updatedImage.id ? updatedImage : img
-    ));
-    setIsComparing(false);
-    setTempUpscaledImage(null);
+    img.src = tempUpscaledImage;
   };
 
   const handleCancelUpscale = () => {
@@ -822,20 +814,15 @@ export default function App() {
       const currentVideoProvider = liveConfig.provider as ProviderOption;
 
       // Prepare Image Input
-      // If we are cross-provider or need robust handling (like ModelScope), get a Blob.
+      // Use unified fetchBlob which handles proxy fallback automatically for string URLs
       let imageInput: string | Blob = currentImage.url;
-      
       try {
-          // If the image is from ModelScope or Gitee AI provider that have CORS issues,
-          // or simply to ensure stability across providers for Live generation:
-          // Try to fetch it as a Blob. For ModelScope specifically, use proxy logic in getUrlAsBlob.
           if (currentImage.provider === 'gitee' || currentImage.provider === 'modelscope') {
-               // Use proxy for fetching to be safe
-               imageInput = await getUrlAsBlob(currentImage.url, true);
+               // Fetch blob using unified utility which handles proxy fallback
+               imageInput = await fetchBlob(currentImage.url);
           }
       } catch (e) {
-          console.warn("Failed to convert image to blob for Live gen, falling back to URL", e);
-          // Fallback to URL if blob conversion fails (might still work if URL is accessible by provider)
+          console.warn("Failed to fetch image blob for Live gen, using original URL", e);
       }
 
       // Resolution scaling logic (Specific to Gitee)
@@ -947,112 +934,25 @@ export default function App() {
     if (isDownloading) return;
     setIsDownloading(true);
 
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    
     try {
-        if (currentImage.provider === 'gitee' || currentImage.provider === 'modelscope') {
-            const link = document.createElement('a');
-            link.href = imageUrl;
-            if (isMobile) link.target = '_blank';
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            setIsDownloading(false);
-            return;
+        // Handle Extension and NSFW Suffix
+        // Determine if filename already has an extension
+        const hasExtension = fileName.match(/\.[a-zA-Z0-9]+$/);
+        // Default extension if missing (usually handled by downloadImage via Blob type, but we prep filename here)
+        // If extension is missing, we append a placeholder or let user agent handle if possible, 
+        // but explicit extension is better. We'll guess png if unknown.
+        let base = hasExtension ? fileName.replace(/\.[a-zA-Z0-9]+$/, '') : fileName;
+        let ext = hasExtension ? hasExtension[0] : '.png';
+
+        // Inject NSFW suffix if needed
+        if (currentImage?.isBlurred && !base.toUpperCase().endsWith('.NSFW')) {
+            base += '.NSFW';
         }
+        
+        fileName = base + ext;
 
-      // 1. Fetch blob (handles CORS if server allows, and Data URLs)
-      let response: Response;
-      response = await fetch(imageUrl);
-      if (!response.ok) throw new Error('Network response was not ok');
-      
-      let blob = await response.blob();
-
-      // 2. Convert WebP to PNG if needed (Only for images)
-      if (blob.type.startsWith('image') && (blob.type === 'image/webp' || imageUrl.includes('.webp'))) {
-          try {
-             // Create a temp image to draw to canvas
-             const img = new Image();
-             img.crossOrigin = "Anonymous";
-             const blobUrl = URL.createObjectURL(blob);
-             
-             await new Promise((resolve, reject) => {
-                 img.onload = resolve;
-                 img.onerror = reject;
-                 img.src = blobUrl;
-             });
-             
-             const canvas = document.createElement('canvas');
-             canvas.width = img.naturalWidth;
-             canvas.height = img.naturalHeight;
-             const ctx = canvas.getContext('2d');
-             if (ctx) {
-                 ctx.drawImage(img, 0, 0);
-                 const pngBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
-                 if (pngBlob) {
-                     blob = pngBlob;
-                     fileName = fileName.replace(/\.webp$/i, '.png');
-                     if (!fileName.endsWith('.png')) fileName += '.png';
-                 }
-             }
-             URL.revokeObjectURL(blobUrl);
-          } catch (e) {
-              console.warn("Conversion failed, using original blob", e);
-          }
-      }
-
-      // 3. Handle Extension and NSFW Suffix
-      const blobType = blob.type.split('/')[1] || 'png';
-      
-      // Determine if filename already has an extension
-      const hasExtension = fileName.match(/\.[a-zA-Z0-9]+$/);
-      let ext = hasExtension ? hasExtension[0] : `.${blobType}`;
-      let base = hasExtension ? fileName.replace(/\.[a-zA-Z0-9]+$/, '') : fileName;
-
-      // Inject NSFW suffix if needed
-      if (currentImage?.isBlurred && !base.toUpperCase().endsWith('.NSFW')) {
-          base += '.NSFW';
-      }
-      
-      fileName = base + ext;
-
-      // 4. Mobile Strategy: Web Share API (Primary for iOS/Mobile)
-      if (isMobile) {
-          const file = new File([blob], fileName, { type: blob.type });
-          
-          const nav = navigator as any;
-          const canShare = nav.canShare && nav.canShare({ files: [file] });
-
-          if (canShare) {
-              try {
-                  await nav.share({
-                      files: [file],
-                      title: 'Peinture AI Asset',
-                  });
-                  setIsDownloading(false);
-                  return; // Success, shared
-              } catch (e: any) {
-                  if (e.name !== 'AbortError') console.warn("Share failed", e);
-                  if (e.name === 'AbortError') {
-                      setIsDownloading(false);
-                      return; // User cancelled
-                  }
-                  // If share failed (not cancelled), fall through to anchor method
-              }
-          }
-      }
-
-      // 5. Desktop/Fallback Strategy: Anchor Download
-      const blobUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      if (isMobile) link.target = '_blank';
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
+        // Use unified download utility
+        await downloadImage(imageUrl, fileName);
 
     } catch (e) {
       console.error("Download failed", e);
@@ -1075,20 +975,12 @@ export default function App() {
         let finalFileName = fileName || `generated-${generateUUID()}`;
         
         // Extract metadata and context
+        // If uploading specific resource type (like video), metadata might already have type set
         const context = metadata || (currentImage ? { ...currentImage } : {});
 
         if (typeof imageBlobOrUrl === 'string') {
-            if (context.provider === 'modelscope' || context.provider === 'gitee') {
-                const fetchUrl = `https://peinture-proxy.9th.xyz/?url=${imageBlobOrUrl}`;
-                const response = await fetch(fetchUrl);
-                if (!response.ok) throw new Error("Failed to fetch image for upload");
-                blob = await response.blob();
-            } else {
-                // Standard fetch
-                const response = await fetch(imageBlobOrUrl);
-                if (!response.ok) throw new Error("Failed to fetch image for upload");
-                blob = await response.blob();
-            }
+            // Use unified fetchBlob which handles proxy fallback automatically
+            blob = await fetchBlob(imageBlobOrUrl);
         } else {
             blob = imageBlobOrUrl;
         }
@@ -1137,11 +1029,17 @@ export default function App() {
   // So we ONLY hide if isWorking (main image gen).
   const shouldHideToolbar = isWorking; 
 
-  // Check if current image is already uploaded
+  // Check if current image OR video is already uploaded based on mode
   const isCurrentUploaded = useMemo(() => {
       if (!currentImage) return false;
-      return cloudHistory.some(ci => ci.fileName && ci.fileName.includes(currentImage.id));
-  }, [currentImage, cloudHistory]);
+      if (isLiveMode && currentImage.videoUrl) {
+          // Check for video filename match in cloud history
+          return cloudHistory.some(ci => ci.fileName && ci.fileName.includes(`video-${currentImage.id}`));
+      } else {
+          // Check for image filename match in cloud history (exclude video prefix to be safe)
+          return cloudHistory.some(ci => ci.fileName && ci.fileName.includes(currentImage.id) && !ci.fileName.includes('video-'));
+      }
+  }, [currentImage, cloudHistory, isLiveMode]);
 
   // Stable callbacks for Header
   const handleOpenSettings = useCallback(() => setShowSettings(true), []);
@@ -1282,15 +1180,24 @@ export default function App() {
                                 isLiveGenerating={isLiveGenerating}
                                 provider={provider}
                                 // Cloud Upload Props
-                                handleUploadToS3={() => {
+                                handleUploadToS3={async () => {
                                     if (currentImage) {
-                                        let fileName = currentImage.id || `image-${Date.now()}`;
-                                        if (currentImage.isBlurred) {
-                                            fileName += '.NSFW';
+                                        // Mode-specific upload logic
+                                        if (isLiveMode && currentImage.videoUrl) {
+                                            // Upload Video
+                                            const ext = currentImage.videoUrl.includes('.mp4') ? '.mp4' : '.webm';
+                                            const fileName = `video-${currentImage.id}${ext}`;
+                                            await handleUploadToCloud(currentImage.videoUrl, fileName, { ...currentImage, type: 'video' });
+                                        } else {
+                                            // Upload Image
+                                            let fileName = currentImage.id || `image-${Date.now()}`;
+                                            if (currentImage.isBlurred) {
+                                                fileName += '.NSFW';
+                                            }
+                                            const getExt = (url: string) => new URL(url).pathname.split('.').pop();
+                                            fileName += `.${getExt(currentImage.url)}`
+                                            await handleUploadToCloud(currentImage.url, fileName);
                                         }
-                                        const getExt = (url: string) => new URL(url).pathname.split('.').pop();
-                                        fileName += `.${getExt(currentImage.url)}`
-                                        handleUploadToCloud(currentImage.url, fileName);
                                     }
                                 }}
                                 isUploading={isUploading}

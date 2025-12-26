@@ -12,6 +12,8 @@ export interface GeneratedImage {
     duration?: number;
     isBlurred?: boolean;
     isUpscaled?: boolean;
+    width?: number;
+    height?: number;
     provider?: ProviderOption;
     // Video Generation Properties
     videoUrl?: string;

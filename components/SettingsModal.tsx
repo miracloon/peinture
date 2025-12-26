@@ -103,6 +103,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
     const [newProviderName, setNewProviderName] = useState('');
     const [newProviderUrl, setNewProviderUrl] = useState('');
     const [newProviderToken, setNewProviderToken] = useState('');
+    const [showNewProviderToken, setShowNewProviderToken] = useState(false);
+    const [showCustomProviderTokens, setShowCustomProviderTokens] = useState<Record<string, boolean>>({});
     const [fetchStatus, setFetchStatus] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
     const [fetchedModels, setFetchedModels] = useState<RemoteModelList | null>(null);
 
@@ -203,6 +205,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
             // Reset Tab to Provider (Default)
             setActiveTab('general');
             setShowClearConfirm(false);
+            setShowNewProviderToken(false);
+            setShowCustomProviderTokens({});
         }
     }, [isOpen, provider, currentModel]);
 
@@ -1088,12 +1092,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                                                 {/* Token */}
                                                                 <div className="space-y-2">
                                                                     <label className="text-xs font-medium text-white/60">{t.api_token}</label>
-                                                                    <input 
-                                                                        type="password"
-                                                                        value={cp.token || ''}
-                                                                        onChange={(e) => handleUpdateCustomProvider(cp.id, { token: e.target.value })}
-                                                                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono"
-                                                                    />
+                                                                    <div className="relative w-full">
+                                                                        <input 
+                                                                            type={showCustomProviderTokens[cp.id] ? "text" : "password"}
+                                                                            value={cp.token || ''}
+                                                                            onChange={(e) => handleUpdateCustomProvider(cp.id, { token: e.target.value })}
+                                                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono pr-8"
+                                                                        />
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setShowCustomProviderTokens(prev => ({ ...prev, [cp.id]: !prev[cp.id] }))}
+                                                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white p-1"
+                                                                        >
+                                                                            {showCustomProviderTokens[cp.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
                                                                 
                                                                 {/* Stats & Delete */}
@@ -1166,12 +1179,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                                                                 </div>
                                                                 <div className="space-y-2">
                                                                     <label className="text-xs font-medium text-white/60">{t.api_token}</label>
-                                                                    <input 
-                                                                        type="password"
-                                                                        value={newProviderToken}
-                                                                        onChange={e => setNewProviderToken(e.target.value)}
-                                                                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono"
-                                                                    />
+                                                                    <div className="relative w-full">
+                                                                        <input 
+                                                                            type={showNewProviderToken ? "text" : "password"}
+                                                                            value={newProviderToken}
+                                                                            onChange={e => setNewProviderToken(e.target.value)}
+                                                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono pr-8"
+                                                                        />
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setShowNewProviderToken(!showNewProviderToken)}
+                                                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white p-1"
+                                                                        >
+                                                                            {showNewProviderToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
 
                                                                 {fetchedModels && (

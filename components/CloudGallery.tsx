@@ -3,6 +3,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { CloudFile } from '../types';
 import { CloudUpload, Image as ImageIcon, Film, Loader2, Download, Trash2, Copy, Eye, EyeOff, Maximize2, X, Check, Settings } from 'lucide-react';
 import { isStorageConfigured, listCloudFiles, deleteCloudFile, getStorageType, fetchCloudBlob, renameCloudFile, getFileId, getS3Config } from '../services/storageService';
+import { downloadImage } from '../services/utils';
 import { Tooltip } from './Tooltip';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 
@@ -206,37 +207,41 @@ export const CloudGallery: React.FC<CloudGalleryProps> = ({ t, handleUploadToS3,
         try {
             // Check if we need to fetch blob first (if urlToUse is remote and likely private/CORS protected)
             // Or if it's already an Object URL (blob:...)
-            let blobUrl = urlToUse;
-            let needRevoke = false;
-
-            if (!urlToUse.startsWith('blob:')) {
-                 const blob = await fetchCloudBlob(urlToUse);
-                 blobUrl = window.URL.createObjectURL(blob);
-                 needRevoke = true;
-            }
-
-            const link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            let downloadUrl = urlToUse;
             
-            if (needRevoke) {
-                setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+            // If it's a remote URL (not a blob URL), fetchBlob handles proxy/headers if used via unified downloadImage
+            // However, CloudGallery `localUrls` might hold blob URLs from `fetchCloudBlob` (which handles signed S3).
+            // `downloadImage` in utils handles `blob:` protocol natively.
+            
+            // If it is NOT a local blob url, and it IS a private S3/WebDAV link (checked by logic above in load),
+            // we should have already loaded it into `localUrls`.
+            // If `localUrls` is missing (e.g. infinite scroll not reached yet or failed), `urlToUse` is `file.url`.
+            // `file.url` for private S3/WebDAV might not be publicly accessible via `fetch` inside `downloadImage` (which lacks headers).
+            // BUT `downloadImage` is unified for public/proxy logic. 
+            
+            // Special Case: Private Storage Download via unified `downloadImage`.
+            // If we have a local blob URL, pass that. `downloadImage` handles `blob:`.
+            // If we don't, and it requires auth, `downloadImage` will fail unless we fetch it here first using `fetchCloudBlob`.
+            
+            if (!downloadUrl.startsWith('blob:') && (getStorageType() === 'webdav' || (getStorageType() === 's3' && !getS3Config().publicDomain))) {
+                 const blob = await fetchCloudBlob(downloadUrl);
+                 downloadUrl = window.URL.createObjectURL(blob);
+                 // We will let `downloadImage` handle the download, and then revoke.
+                 // But `downloadImage` is async.
+                 await downloadImage(downloadUrl, fileName);
+                 setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 1000);
+            } else {
+                 // Public URL or already Blob URL
+                 await downloadImage(downloadUrl, fileName);
             }
+
         } catch (e) {
             // Outputting system error messages is prohibited.
             console.error("Download failed, opening in new tab");
             try {
-              const link = document.createElement('a');
-              link.href = urlToUse;
-              link.download = fileName;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-            } catch (err) {
               window.open(urlToUse, '_blank');
+            } catch (err) {
+              // Ignore
             }
         }
     };
