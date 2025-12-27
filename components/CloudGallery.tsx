@@ -78,7 +78,7 @@ export const CloudGallery: React.FC<CloudGalleryProps> = ({ t, handleUploadToS3,
 
                 // Fetch blob and create ObjectURL (handles signed S3 requests via fetchCloudBlob)
                 try {
-                    const blob = await fetchCloudBlob(String(file.url));
+                    const blob = await fetchCloudBlob(file.url);
                     if (!isCancelled) {
                         const url = URL.createObjectURL(blob);
                         setLocalUrls(prev => ({ ...prev, [file.key]: url }));
@@ -159,7 +159,7 @@ export const CloudGallery: React.FC<CloudGalleryProps> = ({ t, handleUploadToS3,
                 await handleUploadToS3(file, fileName, metadata);
                 
                 setTimeout(loadFiles, 1000);
-            } catch (err) {
+            } catch (err: any) {
                 // Outputting system error messages is prohibited.
                 console.error(t.upload_failed);
             } finally {
@@ -192,7 +192,7 @@ export const CloudGallery: React.FC<CloudGalleryProps> = ({ t, handleUploadToS3,
                 }
                 return next;
             });
-        } catch (error) {
+        } catch (error: any) {
             // Outputting system error messages is prohibited.
             console.error("Delete failed");
         } finally {
@@ -235,14 +235,10 @@ export const CloudGallery: React.FC<CloudGalleryProps> = ({ t, handleUploadToS3,
                  await downloadImage(downloadUrl, fileName);
             }
 
-        } catch (e) {
+        } catch (e: any) {
             // Outputting system error messages is prohibited.
             console.error("Download failed, opening in new tab");
-            try {
-              window.open(urlToUse, '_blank');
-            } catch (err) {
-              // Ignore
-            }
+            window.open(urlToUse, '_blank');
         }
     };
 
@@ -271,7 +267,7 @@ export const CloudGallery: React.FC<CloudGalleryProps> = ({ t, handleUploadToS3,
                 console.warn("No prompt found in metadata");
                 setCopyPromptErrorId(file.key);
             }
-        } catch (e) {
+        } catch (e: any) {
             // Outputting system error messages is prohibited.
             console.error("Failed to fetch/parse metadata for prompt copy");
             setCopyPromptErrorId(file.key);
@@ -340,9 +336,8 @@ export const CloudGallery: React.FC<CloudGalleryProps> = ({ t, handleUploadToS3,
                 return next;
             });
 
-        } catch (e) {
+        } catch (e: any) {
             console.error("Failed to toggle NSFW status", e);
-            alert(t.error_rename_failed || "Rename failed");
         } finally {
             setTogglingNsfwId(null);
         }

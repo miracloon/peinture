@@ -328,20 +328,42 @@ export default function App() {
     }
   }, [currentView, provider, model]);
 
-  // Robust Polling for Video Tasks
+  // Robust Polling for Video Tasks using Recursive Timeout
   useEffect(() => {
-    const pollInterval = setInterval(async () => {
-        // Use refs to check condition without adding dependencies
+    let isMounted = true;
+    let timeoutId: any;
+
+    const poll = async () => {
+        if (!isMounted) return;
+
         const currentHist = historyRef.current;
+        // Filter items that are generating AND have a task ID
         const pendingVideos = currentHist.filter(img => 
             img.videoStatus === 'generating' && 
             img.videoTaskId
         );
         
-        if (pendingVideos.length === 0) return;
+        if (pendingVideos.length === 0) {
+            // Check again later
+            timeoutId = setTimeout(poll, 5000);
+            return;
+        }
 
-        // Fetch updates in parallel
-        const updates = await Promise.all(pendingVideos.map(async (img) => {
+        const now = Date.now();
+        // Determine which are ready to poll (handling predict delay)
+        const readyToPoll = pendingVideos.filter(img => !img.videoNextPollTime || now >= img.videoNextPollTime);
+
+        if (readyToPoll.length === 0) {
+            // Nothing ready yet, wait for the earliest next time or 5s minimum
+            const nextTimes = pendingVideos.map(img => img.videoNextPollTime || 5000);
+            const minTime = Math.min(...nextTimes);
+            const delay = Math.max(5000, minTime - now);
+            timeoutId = setTimeout(poll, delay);
+            return;
+        }
+
+        // Fetch updates for ready items in parallel (but next cycle waits for this to finish)
+        const updates = await Promise.all(readyToPoll.map(async (img) => {
             if (!img.videoTaskId) return null;
             try {
                 if (img.videoProvider === 'gitee') {
@@ -369,7 +391,7 @@ export default function App() {
 
         const validUpdates = updates.filter(u => u !== null) as {id: string, status: string, videoUrl?: string, error?: string}[];
 
-        if (validUpdates.length > 0) {
+        if (validUpdates.length > 0 && isMounted) {
             setHistory(prev => prev.map(item => {
                 const update = validUpdates.find(u => u.id === item.id);
                 if (!update) return item;
@@ -383,7 +405,7 @@ export default function App() {
                 return item;
             }));
 
-            // Sync currentImage if it's the one currently being viewed
+            // Sync currentImage if needed
             const currImg = currentImageRef.current;
             if (currImg) {
                 const relevantUpdate = validUpdates.find(u => u.id === currImg.id);
@@ -398,10 +420,18 @@ export default function App() {
                 }
             }
         }
-    }, 5000); // Check every 5 seconds
 
-    return () => clearInterval(pollInterval);
-  }, []); // Empty dependency array ensures interval doesn't reset on render
+        // Schedule next poll cycle
+        if (isMounted) timeoutId = setTimeout(poll, 5000);
+    };
+
+    poll();
+
+    return () => {
+        isMounted = false;
+        clearTimeout(timeoutId);
+    };
+  }, []); // Empty dependency array ensures poll only starts once on mount
 
 
   // Language Persistence
@@ -858,7 +888,12 @@ export default function App() {
               // Gitee: Create Task and let polling handle it
               // Prompt is fetched from settings inside the service
               const taskId = await createVideoTask(imageInput, width, height);
-              const taskedImage = { ...loadingImage, videoTaskId: taskId } as GeneratedImage;
+              const nextPollTime = Date.now() + 400 * 1000;
+              const taskedImage = {
+                ...loadingImage,
+                videoTaskId: taskId,
+                videoNextPollTime: nextPollTime
+              } as GeneratedImage;
               setCurrentImage(taskedImage);
               setHistory(prev => prev.map(img => img.id === taskedImage.id ? taskedImage : img));
           } else if (currentVideoProvider === 'huggingface') {
@@ -881,7 +916,7 @@ export default function App() {
               const activeProvider = customProviders.find(p => p.id === currentVideoProvider);
               if (activeProvider) {
                   const settings = getVideoSettings(currentVideoProvider);
-                  // generateCustomVideo now returns object with url or taskId
+                  // generateCustomVideo now returns object with url or taskId and optional predict time
                   const result = await generateCustomVideo(
                       activeProvider, 
                       liveConfig.model, 
@@ -895,7 +930,13 @@ export default function App() {
                   
                   if (result.taskId) {
                       // Async: Task created
-                      const taskedImage = { ...loadingImage, videoTaskId: result.taskId } as GeneratedImage;
+                      // Handle 'predict' time if provided (seconds)
+                      const nextPollTime = result.predict ? Date.now() + result.predict * 1000 : undefined;
+                      const taskedImage = { 
+                          ...loadingImage, 
+                          videoTaskId: result.taskId,
+                          videoNextPollTime: nextPollTime 
+                      } as GeneratedImage;
                       setCurrentImage(taskedImage);
                       setHistory(prev => prev.map(img => img.id === taskedImage.id ? taskedImage : img));
                   } else if (result.url) {
@@ -1152,8 +1193,6 @@ export default function App() {
                             imageDimensions={imageDimensions}
                             setImageDimensions={setImageDimensions}
                             t={t}
-                            copiedPrompt={copiedPrompt}
-                            handleCopyPrompt={handleCopyPrompt}
                             isLiveMode={isLiveMode}
                             onToggleLiveMode={() => setIsLiveMode(!isLiveMode)}
                         >
@@ -1202,6 +1241,9 @@ export default function App() {
                                 }}
                                 isUploading={isUploading}
                                 isUploaded={isCurrentUploaded}
+                                imageDimensions={imageDimensions}
+                                copiedPrompt={copiedPrompt}
+                                handleCopyPrompt={handleCopyPrompt}
                             />
                         )}
                     </div>

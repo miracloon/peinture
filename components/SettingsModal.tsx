@@ -53,7 +53,7 @@ import {
     MS_MODEL_OPTIONS, 
     EDIT_MODELS, 
     LIVE_MODELS, 
-    TEXT_MODELS,
+    TEXT_MODELS, 
     UPSCALER_MODELS,
     UnifiedModelOption
 } from '../constants';
@@ -397,50 +397,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
         return groups;
     };
 
-    const getCreationModelGroups = (): OptionGroup[] => {
-        const groups: OptionGroup[] = [];
-        const isServer = serviceMode === 'server';
-        const isLocal = serviceMode === 'local';
-        const isHydration = serviceMode === 'hydration';
-
-        // Base Providers - Show if Local or Hydration
-        if (isLocal || isHydration) {
-            // HF
-            const hfOptions = HF_MODEL_OPTIONS.map(m => ({ label: m.label, value: `huggingface:${m.value}` }));
-            groups.push({ label: t.provider_huggingface, options: hfOptions });
-            
-            // Gitee
-            if (giteeToken || localStorage.getItem('giteeToken')) {
-                const giteeOptions = GITEE_MODEL_OPTIONS.map(m => ({ label: m.label, value: `gitee:${m.value}` }));
-                groups.push({ label: t.provider_gitee, options: giteeOptions });
-            }
-
-            // MS
-            if (msToken || localStorage.getItem('msToken')) {
-                const msOptions = MS_MODEL_OPTIONS.map(m => ({ label: m.label, value: `modelscope:${m.value}` }));
-                groups.push({ label: t.provider_modelscope, options: msOptions });
-            }
-        }
-
-        // Custom Providers - Show if Server or Hydration
-        if (isServer || isHydration) {
-            customProviders.forEach(cp => {
-                const models = cp.models.generate;
-                if (models && models.length > 0) {
-                    groups.push({
-                        label: cp.name,
-                        options: models.map(m => ({
-                            label: m.name,
-                            value: `${cp.id}:${m.id}`
-                        }))
-                    });
-                }
-            });
-        }
-
-        return groups;
-    };
-
     // HF Handlers
     const handleTokenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newVal = e.target.value;
@@ -733,6 +689,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, l
                     type={isShow ? "text" : "password"}
                     value={value}
                     onChange={onChange}
+                    onPaste={(e) => {
+                        e.preventDefault();
+                        const text = e.clipboardData.getData('text');
+                        const processed = text.replace(/[\r\n]+/g, ',');
+                        
+                        const input = e.currentTarget;
+                        const start = input.selectionStart || 0;
+                        const end = input.selectionEnd || 0;
+                        const currentValue = input.value;
+                        
+                        const newValue = currentValue.substring(0, start) + processed + currentValue.substring(end);
+                        
+                        const event = {
+                            target: { value: newValue }
+                        } as React.ChangeEvent<HTMLInputElement>;
+                        
+                        onChange(event);
+                    }}
                     placeholder={placeholder}
                     className="w-full pl-4 pr-10 py-2.5 bg-[#1A1625] border border-white/10 rounded-xl text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/50 transition-all font-mono text-sm"
                 />

@@ -8,7 +8,7 @@ const OVIS_IMAGE_BASE_API_URL = "https://aidc-ai-ovis-image-7b.hf.space";
 const FLUX_SCHNELL_BASE_API_URL = "https://black-forest-labs-flux-1-schnell.hf.space";
 const UPSCALER_BASE_API_URL = "https://tuan2308-upscaler.hf.space";
 const POLLINATIONS_API_URL = "https://text.pollinations.ai/openai";
-const WAN2_VIDEO_API_URL = "https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space";
+const WAN2_VIDEO_API_URL = "https://fradeck619-wan2-2-fp8da-aoti-faster.hf.space";
 export const QWEN_IMAGE_EDIT_BASE_API_URL = "https://linoyts-qwen-image-edit-2509-fast.hf.space";
 
 // --- Token Management System ---
@@ -23,6 +23,8 @@ interface TokenStatusStore {
 }
 
 const getUTCDatesString = () => new Date().toISOString().split('T')[0];
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const getTokenStatusStore = (): TokenStatusStore => {
   const defaultStore = { date: getUTCDatesString(), exhausted: {} };
@@ -444,6 +446,9 @@ export const editImageQwen = async (
         signal
       });
       const { event_id } = await queue.json();
+
+      await sleep(30);
+
       const response = await fetch(QWEN_IMAGE_EDIT_BASE_API_URL + '/gradio_api/call/infer/' + event_id, {
         headers: {
           "Accept": "text/event-stream",
@@ -510,6 +515,9 @@ export const upscaler = async (url: string): Promise<{ url: string }> => {
         })
       });
       const { event_id } = await queue.json();
+
+      await sleep(30);
+
       const response = await fetch(UPSCALER_BASE_API_URL + '/gradio_api/call/realesrgan/' + event_id, {
         headers: getAuthHeaders(token)
       });
@@ -604,6 +612,8 @@ export const createVideoTaskHF = async (imageInput: string | Blob, seed: number 
         })
       });
       const { event_id } = await queue.json();
+
+      await sleep(40);
 
       // Step 2: Loop to check status. Since HF API relies on event stream which might be long-lived,
       // we use fetch without abort controller to read the stream until it ends (server closes).

@@ -2,10 +2,8 @@
 import React, { useRef } from 'react';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { ImageComparison } from './ImageComparison';
-import { Paintbrush, AlertCircle, Sparkles, Timer, Copy, Check, X, Film, Image as ImageIcon } from 'lucide-react';
+import { Paintbrush, AlertCircle, Sparkles, X, Film, Image as ImageIcon } from 'lucide-react';
 import { GeneratedImage } from '../types';
-import { HF_MODEL_OPTIONS, GITEE_MODEL_OPTIONS, MS_MODEL_OPTIONS } from '../constants';
-import { getCustomProviders } from '../services/utils';
 
 interface PreviewStageProps {
     currentImage: GeneratedImage | null;
@@ -21,8 +19,6 @@ interface PreviewStageProps {
     imageDimensions: { width: number, height: number } | null;
     setImageDimensions: (val: { width: number, height: number } | null) => void;
     t: any;
-    copiedPrompt: boolean;
-    handleCopyPrompt: () => void;
     children?: React.ReactNode;
     // New Props for Live
     isLiveMode?: boolean;
@@ -44,51 +40,12 @@ export const PreviewStage: React.FC<PreviewStageProps> = ({
     imageDimensions,
     setImageDimensions,
     t,
-    copiedPrompt,
-    handleCopyPrompt,
     children,
     isLiveMode,
     onToggleLiveMode,
     isGeneratingVideoPrompt
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
-
-    const getProviderLabel = (providerId?: string) => {
-        if (!providerId) return 'Hugging Face';
-        if (providerId === 'gitee') return 'Gitee AI';
-        if (providerId === 'modelscope') return 'Model Scope';
-        if (providerId === 'huggingface') return 'Hugging Face';
-        
-        // Check Custom Providers
-        const customProviders = getCustomProviders();
-        const custom = customProviders.find(p => p.id === providerId);
-        return custom ? custom.name : providerId; // Fallback to ID if not found
-    };
-
-    const getModelLabel = (modelValue: string, providerId?: string) => {
-        // First check standard lists
-        const option = [...HF_MODEL_OPTIONS, ...GITEE_MODEL_OPTIONS, ...MS_MODEL_OPTIONS].find(o => o.value === modelValue);
-        if (option) return option.label;
-
-        // Then check custom provider models if available
-        if (providerId) {
-            const customProviders = getCustomProviders();
-            const custom = customProviders.find(p => p.id === providerId);
-            if (custom) {
-                // Search in all categories
-                const allModels = [
-                    ...(custom.models.generate || []),
-                    ...(custom.models.edit || []),
-                    ...(custom.models.video || []),
-                    ...(custom.models.text || [])
-                ];
-                const customModel = allModels.find(m => m.id === modelValue);
-                if (customModel) return customModel.name;
-            }
-        }
-        
-        return modelValue;
-    };
 
     const isLiveGenerating = currentImage?.videoStatus === 'generating';
 
@@ -207,98 +164,6 @@ export const PreviewStage: React.FC<PreviewStageProps> = ({
                                 )}
                             </button>
                          </div>
-                    )}
-
-                    {/* Info Popover */}
-                    {showInfo && !isComparing && (
-                        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 w-[90%] md:w-[400px] bg-[#1A1625]/95 backdrop-blur-md border border-white/10 rounded-xl p-5 shadow-2xl text-sm text-white/80 animate-in slide-in-from-bottom-2 fade-in duration-200">
-                            <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
-                                <h4 className="font-medium text-white">{t.imageDetails}</h4>
-                                <button onClick={() => setShowInfo(false)} className="text-white/40 hover:text-white">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
-                                </button>
-                            </div>
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-0.5">{t.provider}</span>
-                                        <p className="text-white/90 capitalize truncate" title={getProviderLabel(currentImage.provider)}>
-                                            {getProviderLabel(currentImage.provider)}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-0.5">{t.model}</span>
-                                        <p className="text-white/90 truncate" title={getModelLabel(currentImage.model, currentImage.provider)}>
-                                            {getModelLabel(currentImage.model, currentImage.provider)}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-0.5">{t.dimensions}</span>
-                                        <p className="text-white/90">
-                                            {imageDimensions ? `${imageDimensions.width} x ${imageDimensions.height}` : currentImage.aspectRatio}
-                                            {/* Show aspect ratio if not custom or if dimensions match */}
-                                            {currentImage.aspectRatio !== 'custom' && imageDimensions && ` (${currentImage.aspectRatio})`}
-                                            {currentImage.isUpscaled && <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 font-bold">HD</span>}
-                                        </p>
-                                    </div>
-                                    {currentImage.duration !== undefined && (
-                                        <div>
-                                            <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-0.5">{t.duration}</span>
-                                            <p className="font-mono text-white/90 flex items-center gap-1">
-                                                <Timer className="w-3 h-3 text-purple-400" />
-                                                {currentImage.duration.toFixed(1)}s
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    {currentImage.seed !== undefined && (
-                                        <div>
-                                            <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-0.5">{t.seed}</span>
-                                            <p className="font-mono text-white/90">{currentImage.seed}</p>
-                                        </div>
-                                    )}
-                                    {currentImage.guidanceScale !== undefined && (
-                                        <div>
-                                            <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-0.5">{t.guidanceScale}</span>
-                                            <p className="font-mono text-white/90">{currentImage.guidanceScale.toFixed(1)}</p>
-                                        </div>
-                                    )}
-                                    {currentImage.steps !== undefined && (
-                                        <div>
-                                            <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-0.5">{t.steps}</span>
-                                            <p className="font-mono text-white/90">{currentImage.steps}</p>
-                                        </div>
-                                    )}
-                                </div>
-                                <div>
-                                    <div className="flex items-center justify-between mb-1">
-                                        <span className="block text-white/40 text-[10px] uppercase tracking-wider font-semibold">{t.prompt}</span>
-                                        <button
-                                            onClick={handleCopyPrompt}
-                                            className="flex items-center gap-1.5 text-[10px] font-medium text-purple-400 hover:text-purple-300 transition-colors"
-                                        >
-                                            {copiedPrompt ? (
-                                                <>
-                                                    <Check className="w-3 h-3" />
-                                                    {t.copied}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Copy className="w-3 h-3" />
-                                                    {t.copy}
-                                                </>
-                                            )}
-                                        </button>
-                                    </div>
-                                    <div className="max-h-24 overflow-y-auto custom-scrollbar p-2 bg-black/20 rounded-lg border border-white/5">
-                                        <p className="text-xs leading-relaxed text-white/70 italic select-text">{currentImage.prompt}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     )}
 
                     {children}

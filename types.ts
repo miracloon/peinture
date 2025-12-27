@@ -21,6 +21,7 @@ export interface GeneratedImage {
     videoStatus?: 'generating' | 'success' | 'failed';
     videoError?: string;
     videoProvider?: ProviderOption;
+    videoNextPollTime?: number; // Timestamp for next poll attempt
 }
 
 export interface CloudImage {

@@ -156,7 +156,7 @@ export const generateCustomVideo = async (
     seed: number,
     steps: number,
     guidance: number
-): Promise<{ url?: string; taskId?: string }> => {
+): Promise<{ url?: string; taskId?: string, predict?: number }> => {
     const baseUrl = cleanUrl(provider.apiUrl);
     const body = {
         model,
@@ -186,21 +186,14 @@ export const generateCustomVideo = async (
 
     // Check for async task ID
     if (data.taskId) {
-        return { taskId: data.taskId };
+        return { taskId: data.taskId, predict: data.predict };
     }
     
     // Check for sync URL (string or object with url array or url string)
-    let videoUrl: string | null = null;
-    
     if (typeof data === 'string') {
-        videoUrl = data;
+        return { url: data };
     } else if (data.url) {
-        // Handle both array (HF style) and string (Custom style)
-        videoUrl = Array.isArray(data.url) ? data.url[0] : data.url;
-    }
-    
-    if (videoUrl) {
-        return { url: videoUrl };
+        return { url: data.url };
     }
     
     throw new Error("Video URL or Task ID not found in response");
@@ -215,17 +208,12 @@ export const getCustomTaskStatus = async (
     if (provider.token) {
         headers['Authorization'] = `Bearer ${provider.token}`;
     }
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s Timeout
 
     try {
         const response = await fetch(`${baseUrl}/v1/task-status?taskId=${taskId}`, {
             method: 'GET',
-            headers,
-            signal: controller.signal
+            headers
         });
-        clearTimeout(timeoutId);
         
         if (!response.ok) throw new Error('Failed to check task status');
         
@@ -235,20 +223,13 @@ export const getCustomTaskStatus = async (
         const result: {status: string, videoUrl?: string, error?: string} = { status: data.status || 'processing' };
         
         if (data.status === 'success' && data.url) {
-            // Handle both array (HF style) and string (Custom style)
-            result.videoUrl = Array.isArray(data.url) ? data.url[0] : data.url;
+            result.videoUrl = data.url;
         } else if (data.status === 'failed') {
             result.error = data.error || 'Video generation failed';
         }
         
         return result;
     } catch (error: any) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-            console.warn("Check Custom Task Status Timed out");
-            // Return 'processing' so polling continues next time rather than failing hard
-            return { status: 'processing' };
-        }
         console.error("Check Custom Task Status Error:", error);
         return { status: 'error', error: error.message };
     }

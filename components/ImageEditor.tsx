@@ -113,7 +113,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                         .filter(f => f.type === 'image')
                         .sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime());
                     setGalleryFiles(images);
-                } catch (e) {
+                } catch (e: any) {
                     // Outputting system error messages is prohibited.
                     console.error("Failed to load gallery files");
                 } finally {
@@ -137,7 +137,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 if (galleryLocalUrls[file.key]) continue;
 
                 try {
-                    const blob = await fetchCloudBlob(String(file.url));
+                    const blob = await fetchCloudBlob(file.url);
                     if (!isCancelled) {
                         const url = URL.createObjectURL(blob);
                         setGalleryLocalUrls(prev => ({ ...prev, [file.key]: url }));
@@ -345,7 +345,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                             const initialData = ctx.getImageData(0, 0, img.width, img.height);
                             setHistoryStates([initialData]); 
                             setHistoryIndex(0);
-                         } catch (e) {
+                         } catch (e: any) {
                             console.error("Failed to read image data (CORS restriction):");
                             setHistoryStates([]);
                             setHistoryIndex(-1);
@@ -369,7 +369,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
                 alert(t.error_api_connection || "Failed to load image");
             };
             img.src = objectUrl;
-        } catch (e) {
+        } catch (e: any) {
             console.error("Failed to fetch image for editor:", e);
             alert(t.error_api_connection || "Failed to fetch image");
         }
@@ -811,7 +811,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             // Use unified download utility
             await downloadImage(url, fileName);
 
-        } catch (e) {
+        } catch (e: any) {
             console.error("Download failed", e);
             window.open(url, '_blank');
         } finally {
@@ -841,7 +841,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             fileName += `.${getExt(generatedResult)}`
 
             await handleUploadToS3(blob, fileName, metadata);
-        } catch (e) {
+        } catch (e: any) {
             // Outputting system error messages is prohibited.
             console.error("Failed to prepare blob for upload");
         }
@@ -897,7 +897,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             }
 
             if (optimized) setCommand(optimized);
-        } catch (e) {
+        } catch (e: any) {
             // Outputting system error messages is prohibited.
             console.error("Command optimization failed");
         } finally {
@@ -972,7 +972,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ t, provider, setProvid
             }
             setGeneratedResult(result.url);
             setIsGenerating(false);
-        } catch (e) {
+        } catch (e: any) {
             // Outputting system error messages is prohibited.
             if (e.name === 'AbortError') {
                 console.log('Generation cancelled by user');

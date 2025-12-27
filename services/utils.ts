@@ -399,7 +399,6 @@ export const downloadImage = async (url: string, fileName: string) => {
         const link = document.createElement('a');
         link.href = url;
         link.download = fileName;
-        link.target = '_blank'; // Fail-safe for CORS if download attribute is ignored
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
