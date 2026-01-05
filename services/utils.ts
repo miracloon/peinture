@@ -20,7 +20,7 @@ export const getServiceMode = (): ServiceMode => {
         if (stored) return stored as ServiceMode;
     }
     // Fallback to Env Var, then default to 'local'
-    return (process.env.SERVICE_MODE as ServiceMode) || 'local';
+    return (process.env.VITE_SERVICE_MODE as ServiceMode) || 'local';
 };
 
 export const saveServiceMode = (mode: ServiceMode) => {

@@ -21,6 +21,7 @@ export const API_MODEL_MAP: Record<ProviderOption, Record<string, string>> = {
     'flux-1-krea': 'FLUX_1-Krea-dev',
     'flux-1': 'FLUX.1-dev',
     'deepseek-3_2': 'DeepSeek-V3.2', // text
+    'qwen-3': 'Qwen3-Next-80B-A3B-Instruct', // text
     'qwen-image-edit': 'Qwen-Image-Edit', // edit
     'wan2_2-i2v': 'Wan2_2-I2V-A14B', // video
   },
@@ -30,6 +31,7 @@ export const API_MODEL_MAP: Record<ProviderOption, Record<string, string>> = {
     'flux-1-krea': 'black-forest-labs/FLUX.1-Krea-dev',
     'flux-1': 'MusePublic/489_ckpt_FLUX_1',
     'deepseek-3_2': 'deepseek-ai/DeepSeek-V3.2', // text
+    'qwen-3': "Qwen/Qwen3-Next-80B-A3B-Instruct", // text
     'qwen-image-edit': 'Qwen/Qwen-Image-Edit-2509', // edit
   }
 };
@@ -131,7 +133,9 @@ export const LIVE_MODELS: UnifiedModelOption[] = [
 export const TEXT_MODELS: UnifiedModelOption[] = [
     { label: 'OpenAI 4o mini', value: 'huggingface:openai-fast', provider: 'huggingface' },
     { label: 'DeepSeek V3.2', value: 'gitee:deepseek-3_2', provider: 'gitee' },
+    { label: 'Qwen 3', value: 'gitee:qwen-3', provider: 'gitee' },
     { label: 'DeepSeek V3.2', value: 'modelscope:deepseek-3_2', provider: 'modelscope' },
+    { label: 'Qwen 3', value: 'modelscope:qwen-3', provider: 'modelscope' },
 ];
 
 export const UPSCALER_MODELS: UnifiedModelOption[] = [
