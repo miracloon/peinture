@@ -1,8 +1,9 @@
 
 import { GeneratedImage, AspectRatioOption, ModelOption } from "../types";
-import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX, getOptimizationModel } from "./utils";
+import { generateUUID, getSystemPromptContent, FIXED_SYSTEM_PROMPT_SUFFIX } from "./utils";
 import { uploadToGradio } from "./hfService";
 import { API_MODEL_MAP } from "../constants";
+import { useAppStore } from "../store/appStore";
 
 const MS_GENERATE_API_URL = "https://api-inference.modelscope.cn/v1/images/generations";
 const MS_CHAT_API_URL = "https://api-inference.modelscope.cn/v1/chat/completions";
@@ -11,79 +12,24 @@ const MS_CHAT_API_URL = "https://api-inference.modelscope.cn/v1/chat/completions
 const QWEN_EDIT_HF_BASE = "https://linoyts-qwen-image-edit-2509-fast.hf.space";
 const QWEN_EDIT_HF_FILE_PREFIX = "https://linoyts-qwen-image-edit-2509-fast.hf.space/gradio_api/file=";
 
-// --- Token Management System ---
-
-const TOKEN_STORAGE_KEY = 'msToken';
-const TOKEN_STATUS_KEY = 'ms_token_status';
-
-interface TokenStatusStore {
-  date: string; // YYYY-MM-DD
-  exhausted: Record<string, boolean>;
-}
-
-// Get Date string for Beijing Time (UTC+8)
-const getBeijingDateString = () => {
-  const d = new Date();
-  const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
-  const nd = new Date(utc + (3600000 * 8));
-  return nd.toISOString().split('T')[0];
-};
-
-const getTokenStatusStore = (): TokenStatusStore => {
-  const defaultStore = { date: getBeijingDateString(), exhausted: {} };
-  if (typeof localStorage === 'undefined') return defaultStore;
-  
-  try {
-    const raw = localStorage.getItem(TOKEN_STATUS_KEY);
-    if (!raw) return defaultStore;
-    const store = JSON.parse(raw);
-    if (store.date !== getBeijingDateString()) {
-      return defaultStore; 
-    }
-    return store;
-  } catch {
-    return defaultStore;
-  }
-};
-
-const saveTokenStatusStore = (store: TokenStatusStore) => {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(TOKEN_STATUS_KEY, JSON.stringify(store));
-  }
-};
-
-export const getMsTokens = (rawInput?: string | null): string[] => {
-  const input = rawInput !== undefined ? rawInput : (typeof localStorage !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) : '');
-  if (!input) return [];
-  return input.split(',').map(t => t.trim()).filter(t => t.length > 0);
-};
-
-export const getMsTokenStats = (rawInput: string) => {
-  const tokens = getMsTokens(rawInput);
-  const store = getTokenStatusStore();
-  const total = tokens.length;
-  const exhausted = tokens.filter(t => store.exhausted[t]).length;
-  return {
-    total,
-    exhausted,
-    active: total - exhausted
-  };
-};
+// --- Token Management System (Refactored to Store) ---
 
 const getNextAvailableToken = (): string | null => {
-  const tokens = getMsTokens();
-  const store = getTokenStatusStore();
-  return tokens.find(t => !store.exhausted[t]) || null;
+  const store = useAppStore.getState();
+  store.resetDailyStatus('modelscope');
+  
+  const tokens = store.tokens.modelscope || [];
+  const status = store.tokenStatus.modelscope;
+  
+  return tokens.find(t => !status.exhausted[t]) || null;
 };
 
 const markTokenExhausted = (token: string) => {
-  const store = getTokenStatusStore();
-  store.exhausted[token] = true;
-  saveTokenStatusStore(store);
+  useAppStore.getState().markTokenExhausted('modelscope', token);
 };
 
 const runWithMsTokenRetry = async <T>(operation: (token: string) => Promise<T>): Promise<T> => {
-  const tokens = getMsTokens();
+  const tokens = useAppStore.getState().tokens.modelscope || [];
   
   if (tokens.length === 0) {
       throw new Error("error_ms_token_required");
@@ -306,10 +252,9 @@ export const editImageMS = async (
   });
 };
 
-export const optimizePromptMS = async (originalPrompt: string): Promise<string> => {
+export const optimizePromptMS = async (originalPrompt: string, model: string = 'deepseek-3_2'): Promise<string> => {
   return runWithMsTokenRetry(async (token) => {
     try {
-      const model = getOptimizationModel('modelscope');
       // Append the fixed suffix to the user's custom system prompt
       const systemInstruction = getSystemPromptContent() + FIXED_SYSTEM_PROMPT_SUFFIX;
       const apiModel = API_MODEL_MAP.modelscope[model] || model;

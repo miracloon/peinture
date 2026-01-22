@@ -7,49 +7,41 @@ import { ModelOption, ProviderOption, AspectRatioOption } from '../types';
 import { 
     HF_MODEL_OPTIONS, 
     GITEE_MODEL_OPTIONS, 
-    MS_MODEL_OPTIONS, 
-    Z_IMAGE_MODELS, 
-    FLUX_MODELS, 
+    MS_MODEL_OPTIONS,
+    A4F_MODEL_OPTIONS,
     getModelConfig, 
     getGuidanceScaleConfig 
 } from '../constants';
 import { getCustomProviders, getServiceMode } from '../services/utils';
+import { useAppStore } from '../store/appStore';
+import { translations } from '../translations';
 
-interface ControlPanelProps {
-    provider: ProviderOption;
-    setProvider: (val: ProviderOption) => void;
-    model: ModelOption;
-    setModel: (val: ModelOption) => void;
-    aspectRatio: AspectRatioOption;
-    setAspectRatio: (val: AspectRatioOption) => void;
-    steps: number;
-    setSteps: (val: number) => void;
-    guidanceScale: number;
-    setGuidanceScale: (val: number) => void;
-    seed: string;
-    setSeed: (val: string) => void;
-    t: any;
-    aspectRatioOptions: { value: string; label: string }[];
-}
-
-export const ControlPanel: React.FC<ControlPanelProps> = ({
-    provider,
-    setProvider,
-    model,
-    setModel,
-    aspectRatio,
-    setAspectRatio,
-    steps,
-    setSteps,
-    guidanceScale,
-    setGuidanceScale,
-    seed,
-    setSeed,
-    t,
-    aspectRatioOptions
-}) => {
+export const ControlPanel: React.FC = () => {
+    const { 
+        language,
+        provider, setProvider,
+        model, setModel,
+        aspectRatio, setAspectRatio,
+        steps, setSteps,
+        guidanceScale, setGuidanceScale,
+        seed, setSeed,
+        tokens
+    } = useAppStore();
+    
+    const t = translations[language];
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
     const [modelOptions, setModelOptions] = useState<OptionGroup[]>([]);
+
+    // Dynamic Aspect Ratio Options based on language
+    const aspectRatioOptions = useMemo(() => [
+        { value: '1:1', label: t.ar_square },
+        { value: '9:16', label: t.ar_photo_9_16 },
+        { value: '16:9', label: t.ar_movie },
+        { value: '3:4', label: t.ar_portrait_3_4 },
+        { value: '4:3', label: t.ar_landscape_4_3 }, 
+        { value: '3:2', label: t.ar_portrait_3_2 },
+        { value: '2:3', label: t.ar_landscape_2_3 },
+    ], [t]);
 
     // Build grouped model options dynamically
     useEffect(() => {
@@ -69,8 +61,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 });
 
                 // Gitee (Only if token exists)
-                const hasGiteeToken = localStorage.getItem('giteeToken');
-                if (hasGiteeToken) {
+                if (tokens.gitee && tokens.gitee.length > 0) {
                     groups.push({
                         label: t.provider_gitee,
                         options: GITEE_MODEL_OPTIONS.map(m => ({ label: m.label, value: `gitee:${m.value}` }))
@@ -78,11 +69,18 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 }
 
                 // Model Scope (Only if token exists)
-                const hasMsToken = localStorage.getItem('msToken');
-                if (hasMsToken) {
+                if (tokens.modelscope && tokens.modelscope.length > 0) {
                     groups.push({
                         label: t.provider_modelscope,
                         options: MS_MODEL_OPTIONS.map(m => ({ label: m.label, value: `modelscope:${m.value}` }))
+                    });
+                }
+
+                // A4F (Only if token exists)
+                if (tokens.a4f && tokens.a4f.length > 0) {
+                    groups.push({
+                        label: t.provider_a4f,
+                        options: A4F_MODEL_OPTIONS.map(m => ({ label: m.label, value: `a4f:${m.value}` }))
                     });
                 }
             }
@@ -111,7 +109,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         // Listen for storage changes to update list dynamically (e.g. after adding token in settings)
         window.addEventListener('storage', updateModelOptions);
         return () => window.removeEventListener('storage', updateModelOptions);
-    }, [t]);
+    }, [t, tokens]);
 
     // Determine current model configuration (Standard or Custom)
     const activeConfig = useMemo(() => {

@@ -1,5 +1,6 @@
 
-import { CustomProvider, ServiceMode } from "../types";
+import { CustomProvider, ServiceMode, VideoSettings } from "../types";
+import { useAppStore } from "../store/appStore";
 
 export function generateUUID(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -9,24 +10,25 @@ export function generateUUID(): string {
   });
 }
 
+// --- Date Helpers for Token Rotation ---
+
+export const getUTCDatesString = () => new Date().toISOString().split('T')[0];
+
+export const getBeijingDateString = () => {
+  const d = new Date();
+  const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+  const nd = new Date(utc + (3600000 * 8));
+  return nd.toISOString().split('T')[0];
+};
+
 // --- Service Mode Management ---
 
-const SERVICE_MODE_KEY = 'service_mode';
-
 export const getServiceMode = (): ServiceMode => {
-    // If local storage has value, use it.
-    if (typeof localStorage !== 'undefined') {
-        const stored = localStorage.getItem(SERVICE_MODE_KEY);
-        if (stored) return stored as ServiceMode;
-    }
-    // Fallback to Env Var, then default to 'local'
-    return (process.env.VITE_SERVICE_MODE as ServiceMode) || 'local';
+    return useAppStore.getState().serviceMode;
 };
 
 export const saveServiceMode = (mode: ServiceMode) => {
-    if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(SERVICE_MODE_KEY, mode);
-    }
+    useAppStore.getState().setServiceMode(mode);
 };
 
 // --- System Prompt Management ---
@@ -46,137 +48,69 @@ Your sole responsibility is to translate user-provided text into English. Before
 If the input text is already in English, return the original English text directly without any modification. If the input text is not in English, translate it precisely into English.
 Your output must strictly adhere to the following requirements: it must contain only the final English translation or the original English text, without any explanations, comments, descriptions, prefixes, suffixes, quotation marks, or other non-translated content.`;
 
-const SYSTEM_PROMPT_STORAGE_KEY = 'custom_system_prompt';
-const TRANSLATION_PROMPT_STORAGE_KEY = 'custom_translation_prompt';
-
 export const getSystemPromptContent = (): string => {
-  if (typeof localStorage === 'undefined') return DEFAULT_SYSTEM_PROMPT_CONTENT;
-  return localStorage.getItem(SYSTEM_PROMPT_STORAGE_KEY) || DEFAULT_SYSTEM_PROMPT_CONTENT;
+  return useAppStore.getState().systemPrompt;
 };
 
 export const saveSystemPromptContent = (content: string) => {
-  if (typeof localStorage !== 'undefined') {
-    if (content === DEFAULT_SYSTEM_PROMPT_CONTENT) {
-      localStorage.removeItem(SYSTEM_PROMPT_STORAGE_KEY);
-    } else {
-      localStorage.setItem(SYSTEM_PROMPT_STORAGE_KEY, content);
-    }
-  }
+  useAppStore.getState().setSystemPrompt(content);
 };
 
 export const getTranslationPromptContent = (): string => {
-  if (typeof localStorage === 'undefined') return DEFAULT_TRANSLATION_SYSTEM_PROMPT;
-  return localStorage.getItem(TRANSLATION_PROMPT_STORAGE_KEY) || DEFAULT_TRANSLATION_SYSTEM_PROMPT;
+  return useAppStore.getState().translationPrompt;
 };
 
 export const saveTranslationPromptContent = (content: string) => {
-  if (typeof localStorage !== 'undefined') {
-    if (content === DEFAULT_TRANSLATION_SYSTEM_PROMPT) {
-      localStorage.removeItem(TRANSLATION_PROMPT_STORAGE_KEY);
-    } else {
-      localStorage.setItem(TRANSLATION_PROMPT_STORAGE_KEY, content);
-    }
-  }
-};
-
-// --- Optimization Model Management (Deprecated in favor of generic config, but kept for compat) ---
-
-export const DEFAULT_OPTIMIZATION_MODELS: Record<string, string> = {
-  huggingface: 'openai-fast',
-  gitee: 'deepseek-3_2',
-  modelscope: 'deepseek-3_2'
-};
-
-const OPTIM_MODEL_STORAGE_PREFIX = 'optim_model_';
-
-export const getOptimizationModel = (provider: string): string => {
-  if (typeof localStorage === 'undefined') return DEFAULT_OPTIMIZATION_MODELS[provider] || 'openai-fast';
-  return localStorage.getItem(OPTIM_MODEL_STORAGE_PREFIX + provider) || DEFAULT_OPTIMIZATION_MODELS[provider] || 'openai-fast';
-};
-
-export const saveOptimizationModel = (provider: string, model: string) => {
-  if (typeof localStorage !== 'undefined') {
-      const defaultModel = DEFAULT_OPTIMIZATION_MODELS[provider];
-      // If saving default content or empty, remove the key to fallback to default
-      if (model === defaultModel || !model.trim()) {
-          localStorage.removeItem(OPTIM_MODEL_STORAGE_PREFIX + provider);
-      } else {
-          localStorage.setItem(OPTIM_MODEL_STORAGE_PREFIX + provider, model.trim());
-      }
-  }
+  useAppStore.getState().setTranslationPrompt(content);
 };
 
 // --- Unified Model Configuration ---
 
-const EDIT_MODEL_KEY = 'app_edit_model_config';
-const LIVE_MODEL_KEY = 'app_live_model_config';
-const TEXT_MODEL_KEY = 'app_text_model_config';
-const UPSCALER_MODEL_KEY = 'app_upscaler_model_config';
-
 export const getEditModelConfig = (): { provider: string, model: string } => {
-    if (typeof localStorage === 'undefined') return { provider: 'huggingface', model: 'qwen-image-edit' };
-    const saved = localStorage.getItem(EDIT_MODEL_KEY);
-    if (saved) {
-        const [provider, model] = saved.split(':');
-        return { provider, model };
-    }
-    return { provider: 'huggingface', model: 'qwen-image-edit' };
+    return useAppStore.getState().editModelConfig;
 };
 
 export const saveEditModelConfig = (value: string) => {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(EDIT_MODEL_KEY, value);
+    const [provider, model] = value.split(':');
+    if (provider && model) {
+        useAppStore.getState().setEditModelConfig({ provider, model });
+    }
 };
 
 export const getLiveModelConfig = (): { provider: string, model: string } => {
-    if (typeof localStorage === 'undefined') return { provider: 'huggingface', model: 'wan2_2-i2v' };
-    const saved = localStorage.getItem(LIVE_MODEL_KEY);
-    if (saved) {
-        const [provider, model] = saved.split(':');
-        return { provider, model };
-    }
-    return { provider: 'huggingface', model: 'wan2_2-i2v' };
+    return useAppStore.getState().liveModelConfig;
 };
 
 export const saveLiveModelConfig = (value: string) => {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(LIVE_MODEL_KEY, value);
+    const [provider, model] = value.split(':');
+    if (provider && model) {
+        useAppStore.getState().setLiveModelConfig({ provider, model });
+    }
 };
 
 export const getTextModelConfig = (): { provider: string, model: string } => {
-    if (typeof localStorage === 'undefined') return { provider: 'huggingface', model: 'openai-fast' };
-    const saved = localStorage.getItem(TEXT_MODEL_KEY);
-    if (saved) {
-        const [provider, model] = saved.split(':');
-        return { provider, model };
-    }
-    return { provider: 'huggingface', model: 'openai-fast' };
+    return useAppStore.getState().textModelConfig;
 };
 
 export const saveTextModelConfig = (value: string) => {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(TEXT_MODEL_KEY, value);
+    const [provider, model] = value.split(':');
+    if (provider && model) {
+        useAppStore.getState().setTextModelConfig({ provider, model });
+    }
 };
 
 export const getUpscalerModelConfig = (): { provider: string, model: string } => {
-    if (typeof localStorage === 'undefined') return { provider: 'huggingface', model: 'RealESRGAN_x4plus' };
-    const saved = localStorage.getItem(UPSCALER_MODEL_KEY);
-    if (saved) {
-        const [provider, model] = saved.split(':');
-        return { provider, model };
-    }
-    return { provider: 'huggingface', model: 'RealESRGAN_x4plus' };
+    return useAppStore.getState().upscalerModelConfig;
 };
 
 export const saveUpscalerModelConfig = (value: string) => {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(UPSCALER_MODEL_KEY, value);
+    const [provider, model] = value.split(':');
+    if (provider && model) {
+        useAppStore.getState().setUpscalerModelConfig({ provider, model });
+    }
 };
 
 // --- Video Settings Management ---
-
-export interface VideoSettings {
-  prompt: string;
-  duration: number; // in seconds
-  steps: number;
-  guidance: number;
-}
 
 export const DEFAULT_VIDEO_SETTINGS: Record<string, VideoSettings> = {
   huggingface: {
@@ -196,68 +130,44 @@ export const DEFAULT_VIDEO_SETTINGS: Record<string, VideoSettings> = {
     duration: 3,
     steps: 10,
     guidance: 4
+  },
+  a4f: {
+    prompt: "make this image come alive, cinematic motion, smooth animation",
+    duration: 3,
+    steps: 10,
+    guidance: 4
   }
 };
 
-const VIDEO_SETTINGS_STORAGE_PREFIX = 'video_settings_';
-
 export const getVideoSettings = (provider: string): VideoSettings => {
+  const storeSettings = useAppStore.getState().videoSettings;
   const defaults = DEFAULT_VIDEO_SETTINGS[provider] || DEFAULT_VIDEO_SETTINGS['huggingface'];
-  if (typeof localStorage === 'undefined') return defaults;
+  const userSettings = storeSettings[provider];
   
-  try {
-    const raw = localStorage.getItem(VIDEO_SETTINGS_STORAGE_PREFIX + provider);
-    if (!raw) return defaults;
-    const parsed = JSON.parse(raw);
-    // Ensure all keys exist by merging with defaults
-    return { ...defaults, ...parsed };
-  } catch {
-    return defaults;
-  }
+  if (!userSettings) return defaults;
+  return { ...defaults, ...userSettings };
 };
 
 export const saveVideoSettings = (provider: string, settings: VideoSettings) => {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(VIDEO_SETTINGS_STORAGE_PREFIX + provider, JSON.stringify(settings));
-  }
+  useAppStore.getState().setVideoSettings(provider, settings);
 };
 
 // --- Custom Provider Management ---
 
-const CUSTOM_PROVIDERS_KEY = 'app_custom_providers';
-
 export const getCustomProviders = (): CustomProvider[] => {
-    if (typeof localStorage === 'undefined') return [];
-    try {
-        const saved = localStorage.getItem(CUSTOM_PROVIDERS_KEY);
-        return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-        console.error("Failed to load custom providers", e);
-        return [];
-    }
+    return useAppStore.getState().customProviders;
 };
 
 export const saveCustomProviders = (providers: CustomProvider[]) => {
-    if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(CUSTOM_PROVIDERS_KEY, JSON.stringify(providers));
-    }
+    useAppStore.getState().setCustomProviders(providers);
 };
 
 export const addCustomProvider = (provider: CustomProvider) => {
-    const current = getCustomProviders();
-    const existingIndex = current.findIndex(p => p.id === provider.id);
-    if (existingIndex >= 0) {
-        current[existingIndex] = provider;
-    } else {
-        current.push(provider);
-    }
-    saveCustomProviders(current);
+    useAppStore.getState().addCustomProvider(provider);
 };
 
 export const removeCustomProvider = (id: string) => {
-    const current = getCustomProviders();
-    const updated = current.filter(p => p.id !== id);
-    saveCustomProviders(updated);
+    useAppStore.getState().removeCustomProvider(id);
 };
 
 // --- Translation Service ---
@@ -388,54 +298,89 @@ export const fetchBlob = async (url: string): Promise<Blob> => {
 
 /**
  * Unified function to download an image from a URL.
- * - PC: Uses <a> tag with 'download' attribute.
- * - Mobile: Fetches Blob -> Tries navigator.share -> Falls back to ObjectURL download.
+ * - Non-mobile:
+ *   - If local (blob/data) or remote: creates <a> tag to download.
+ * - Mobile:
+ *   - If local: Fetch Blob -> Share -> Fallback to ObjectURL download.
+ *   - If remote: Creates <a> tag (direct download).
+ * - Fallback: window.open
  */
 export const downloadImage = async (url: string, fileName: string) => {
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const isLocal = url.startsWith('blob:') || url.startsWith('data:');
 
-    if (!isMobile) {
-        // Desktop: Direct download via <a> tag
+    // Helper to trigger download via anchor tag
+    const triggerAnchorDownload = (href: string, name: string) => {
         const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
+        link.href = href;
+        link.download = name;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-    } else {
-        // Mobile: Fetch Blob -> Share -> ObjectURL
+    };
+
+    if (isMobile && isLocal) {
+        let downloadUrl: string | null = null;
         try {
             const blob = await fetchBlob(url);
             const file = new File([blob], fileName, { type: blob.type });
             const nav = navigator as any;
 
+            // 1. Try Share
             if (nav.canShare && nav.canShare({ files: [file] })) {
                 try {
                     await nav.share({
                         files: [file],
                         title: 'Peinture Image',
                     });
-                    return;
+                    return; // Share successful
                 } catch (e: any) {
-                    if (e.name === 'AbortError') return;
+                    if (e.name === 'AbortError') return; // User cancelled
                     console.warn("Share failed, falling back to download", e);
                 }
             }
 
-            // Fallback to ObjectURL download
-            const blobUrl = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            // 2. Fallback to ObjectURL Download
+            downloadUrl = URL.createObjectURL(blob);
+            triggerAnchorDownload(downloadUrl, fileName);
+            
+            // Cleanup
+            setTimeout(() => {
+                if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+            }, 1000);
 
         } catch (e) {
+            console.error("Mobile local download failed", e);
+            // 3. Final Fallback: Window Open
+            const target = downloadUrl || url;
+            window.open(target, '_blank');
+            if (downloadUrl) {
+                setTimeout(() => URL.revokeObjectURL(downloadUrl!), 1000);
+            }
+        }
+    } else {
+        // Desktop or Mobile Remote
+        try {
+            triggerAnchorDownload(url, fileName);
+        } catch (e) {
             console.error("Download failed", e);
-            // Final fallback: just open in new tab
             window.open(url, '_blank');
         }
     }
+};
+
+export const getExtensionFromUrl = (url: string): string | null => {
+    let path = url;
+    try {
+        const urlObj = new URL(url);
+        path = urlObj.pathname;
+    } catch (e) { /* ignore */ }
+
+    if (url.includes('gradio_api/file=')) {
+        const parts = url.split('gradio_api/file=');
+        if (parts.length > 1) path = parts[1];
+    }
+    path = path.split('?')[0];
+    const match = path.match(/\.([a-zA-Z0-9]+)$/);
+    return match ? match[1] : null;
 };
