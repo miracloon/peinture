@@ -71,7 +71,8 @@ const runWithTokenRetry = async <T>(operation: (token: string | null) => Promise
       const isQuotaError =
         error.message === QUOTA_ERROR_KEY ||
         error.message?.includes("429") ||
-        error.status === 429;
+        error.status === 429 ||
+        error.message?.includes("You have exceeded your free GPU quota");
 
       if (isQuotaError && token) {
         console.warn(`Token ${token.substring(0, 8)}... exhausted. Switching to next token.`);
@@ -201,10 +202,20 @@ const runGradioTask = async <T>(
                             if (msg.success) {
                                 return msg.output as T;
                             } else {
-                                // Enhanced Error Handling
-                                const errorType = msg.output?.error || 'Error';
-                                const errorTitle = msg.title || msg.output?.title || 'Gradio task process failed';
-                                throw new Error(`${errorTitle} (${errorType})`);
+                                // Enhanced Error Handling based on HF Data Structure
+                                const output = msg.output || {};
+                                // HF typical error detail key is " ", or "error"
+                                const detail = output[" "] || output.error || "";
+                                const title = msg.title || output.title || 'Gradio task process failed';
+                                
+                                const fullMessage = detail ? `${title}: ${detail}` : title;
+
+                                // Check if this is a quota error to trigger token rotation
+                                if (fullMessage.includes("You have exceeded your free GPU quota")) {
+                                    throw new Error(QUOTA_ERROR_KEY);
+                                }
+                                
+                                throw new Error(fullMessage);
                             }
                         }
                         
@@ -212,8 +223,8 @@ const runGradioTask = async <T>(
                             // Stream closed, loop will terminate naturally or we throw if no result found
                         }
                     } catch (e) {
-                        // If it's our own error, rethrow
-                        if (e instanceof Error && (e.message === QUOTA_ERROR_KEY || e.message.includes('process failed') || e.message.includes('Error'))) {
+                        // If it's our own error or the quota key, rethrow to be caught by runWithTokenRetry
+                        if (e instanceof Error && (e.message === QUOTA_ERROR_KEY || e.message.includes(':') || e.message.includes('failed'))) {
                             throw e;
                         }
                         // Otherwise ignore parse errors or irrelevant messages

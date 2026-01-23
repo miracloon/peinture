@@ -1,5 +1,6 @@
 
-import { useRef, useState, useCallback, useEffect } from 'react';
+// Import React to resolve namespace errors
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useEditorStore, ToolType } from '../store/editorStore';
 
 export const useEditorCanvas = (containerRef: React.RefObject<HTMLDivElement>) => {

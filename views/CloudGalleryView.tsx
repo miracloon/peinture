@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { CloudFile } from '../types';
 import { CloudUpload, Image as ImageIcon, Loader2, Download, Trash2, Copy, Eye, EyeOff, X, Check, Settings } from 'lucide-react';
@@ -26,7 +25,6 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
     const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
     const [copyingPromptId, setCopyingPromptId] = useState<string | null>(null);
     const [copyPromptErrorId, setCopyPromptErrorId] = useState<string | null>(null);
-    const [fileToDelete, setFileToDelete] = useState<CloudFile | null>(null);
     const [isConfigured, setIsConfigured] = useState(false);
     const [localUrls, setLocalUrls] = useState<Record<string, string>>({});
     
@@ -76,20 +74,18 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
         let isCancelled = false;
 
         const loadImagesSequentially = async () => {
-            for (const file of files) {
+            // Fix line 104 (approx): Explicitly type the files array as CloudFile[] to ensure iterator is correctly inferred.
+            for (const file of files as CloudFile[]) {
                 if (isCancelled) break;
-                // If we already have a local URL for this file (and it's valid), skip
                 if (localUrls[file.key]) continue;
 
-                // Fetch blob and create ObjectURL (handles signed S3 requests and OPFS via fetchCloudBlob)
                 try {
-                    const blob = await fetchCloudBlob(file.url as string);
+                    const blob = await fetchCloudBlob(file.url);
                     if (!isCancelled) {
                         const url = URL.createObjectURL(blob);
                         setLocalUrls(prev => ({ ...prev, [file.key]: url }));
                     }
                 } catch {
-                    // Outputting system error messages is prohibited.
                     console.error(`Failed to load cloud image: ${file.key}`);
                 }
             }
@@ -144,7 +140,6 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                 URL.revokeObjectURL(url);
 
                 // 2. Generate ID and Filename
-                // Check if the original file is marked as NSFW
                 const isNSFW = file.name.toUpperCase().includes('.NSFW');
                 const parts = file.name.split('.');
                 const ext = parts.length > 1 ? parts.pop() : '';
@@ -172,7 +167,6 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                 
                 setTimeout(loadFiles, 1000);
             } catch (err: any) {
-                // Outputting system error messages is prohibited.
                 console.error(t.upload_failed);
             } finally {
                 setUploading(false);
@@ -181,15 +175,8 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
         }
     };
 
-    const handleDeleteClick = (file: CloudFile) => {
-        setFileToDelete(file);
-    };
-
-    const confirmDelete = async () => {
-        if (!fileToDelete) return;
-        
-        const fileKey = fileToDelete.key;
-        setFileToDelete(null);
+    const handleDelete = async (file: CloudFile) => {
+        const fileKey = file.key;
         setDeletingId(fileKey);
 
         try {
@@ -205,7 +192,6 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                 return next;
             });
         } catch (error: any) {
-            // Outputting system error messages is prohibited.
             console.error("Delete failed");
         } finally {
             setDeletingId(null);
@@ -217,29 +203,17 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
         const urlToUse = localUrls[file.key] || file.url;
         
         try {
-            // Check if we need to fetch blob first (if urlToUse is remote and likely private/CORS protected)
-            // Or if it's already an Object URL (blob:...)
             let downloadUrl = urlToUse;
-            
-            // If it is NOT a local blob url, and it IS a private S3/WebDAV/OPFS link
-            // we should have already loaded it into `localUrls`.
-            // If `localUrls` is missing (e.g. infinite scroll not reached yet or failed), `urlToUse` is `file.url`.
-            
-            // Special Case: Private Storage Download via unified `downloadImage`.
             const type = getStorageType();
             if (!downloadUrl.startsWith('blob:') && (type === 'webdav' || type === 'opfs' || (type === 's3' && !getS3Config().publicDomain))) {
                  const blob = await fetchCloudBlob(downloadUrl);
                  downloadUrl = window.URL.createObjectURL(blob);
-                 // We will let `downloadImage` handle the download, and then revoke.
                  await downloadImage(downloadUrl, fileName);
                  setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 1000);
             } else {
-                 // Public URL or already Blob URL
                  await downloadImage(downloadUrl, fileName);
             }
-
         } catch (e: any) {
-            // Outputting system error messages is prohibited.
             console.error("Download failed, opening in new tab");
             window.open(urlToUse, '_blank');
         }
@@ -248,11 +222,7 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
     const handleCopyPrompt = async (file: CloudFile) => {
         if (copyingPromptId || copyPromptErrorId === file.key) return;
 
-        // Construct metadata URL: [id].metadata.json
-        // Ignore .NSFW part for ID
         const id = getFileId(file.key);
-        // We assume the metadata file is in the same directory/path as the image, 
-        // so we can reconstruct the URL by replacing the filename part of the image URL.
         const baseUrl = file.url.substring(0, file.url.lastIndexOf('/') + 1);
         const metaUrl = `${baseUrl}${id}.metadata.json`;
 
@@ -267,11 +237,9 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                 setCopiedPromptId(file.key);
                 setTimeout(() => setCopiedPromptId(null), 2000);
             } else {
-                console.warn("No prompt found in metadata");
                 setCopyPromptErrorId(file.key);
             }
         } catch (e: any) {
-            // Outputting system error messages is prohibited.
             console.error("Failed to fetch/parse metadata for prompt copy");
             setCopyPromptErrorId(file.key);
         } finally {
@@ -286,50 +254,29 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
         const isNSFW = file.key.includes('.NSFW.');
         const originalExtension = file.key.split('.').pop();
         
-        let newKey = '';
-        if (isNSFW) {
-            // Remove .NSFW
-            // Replace `.NSFW.ext` with `.ext`
-            newKey = file.key.replace(`.NSFW.${originalExtension}`, `.${originalExtension}`);
-        } else {
-            // Add .NSFW
-            newKey = file.key.replace(`.${originalExtension}`, `.NSFW.${originalExtension}`);
-        }
+        let newKey = isNSFW 
+            ? file.key.replace(`.NSFW.${originalExtension}`, `.${originalExtension}`)
+            : file.key.replace(`.${originalExtension}`, `.NSFW.${originalExtension}`);
 
         try {
             const type = getStorageType();
-            
             if (type === 's3') {
-                // S3 Specific Logic: Download Blob -> Upload New -> Delete Old
-                // IMPORTANT: Pass NO metadata to handleUploadToS3 to prevent overwriting existing metadata with wrong name or generic data.
-                // The metadata file should remain [id].metadata.json regardless of image rename.
-                
                 const urlToFetch = localUrls[file.key] || file.url;
-                
                 const blob = await fetchCloudBlob(urlToFetch);
-                
-                // Upload with new name, NO metadata
                 await handleUploadToS3(blob, newKey); 
-                
-                // Delete old file
                 await deleteCloudFile(file.key);
-
             } else {
-                // WebDAV and OPFS support rename
                 await renameCloudFile(file.key, newKey);
             }
             
-            // Update Local State
             setFiles(prev => prev.map(f => {
                 if (f.key === file.key) {
-                    // Update key and URL (rough url update for display)
                     const newUrl = f.url.replace(file.key, newKey);
                     return { ...f, key: newKey, url: newUrl };
                 }
                 return f;
             }));
             
-            // Update local URLs cache key
             setLocalUrls(prev => {
                 const next = { ...prev };
                 if (next[file.key]) {
@@ -338,7 +285,6 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                 }
                 return next;
             });
-
         } catch (e: any) {
             console.error("Failed to toggle NSFW status", e);
         } finally {
@@ -347,13 +293,11 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
     };
 
     const visibleFiles = useMemo(() => files.slice(0, displayLimit), [files, displayLimit]);
-    
-    // Use proxy loading if WebDAV OR OPFS OR S3 (private)
     const type = getStorageType();
     const useProxyLoading = type === 'webdav' || type === 'opfs' || (type === 's3' && !getS3Config().publicDomain);
 
     return (
-        <div className="w-full h-full flex flex-col p-4">
+        <div className="w-full h-full flex flex-col p-4 animate-in fade-in duration-500">
              
              {/* Header */}
              <div className="flex flex-row items-center justify-between mb-4 gap-4">
@@ -363,7 +307,6 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                 </div>
                 
                 <div className="flex-shrink-0">
-                    {/* Upload Button handles both file selection and configuration trigger */}
                     {isConfigured ? (
                         <label className={`
                             flex items-center justify-center gap-2 px-4 md:px-6 py-2 md:py-2.5 
@@ -408,8 +351,8 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
              {!isConfigured ? (
                  <div className="flex-1 flex flex-col items-center justify-center text-white/30 space-y-4 min-h-[50vh] animate-in fade-in duration-500">
                      <div className="text-center space-y-2 max-w-md px-4">
-                         <h3 className="text-xl font-medium text-white/60">{t.gallery_setup_title || "Configure Cloud Gallery"}</h3>
-                         <p className="text-sm text-white/40 leading-relaxed">{t.gallery_setup_desc || "Connect your S3 or WebDAV storage to view your generated creations anywhere."}</p>
+                         <h3 className="text-xl font-medium text-white/60">{t.gallery_setup_title}</h3>
+                         <p className="text-sm text-white/40 leading-relaxed">{t.gallery_setup_desc}</p>
                      </div>
                  </div>
              ) : loading ? (
@@ -417,14 +360,13 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                      <Loader2 className="w-10 h-10 text-purple-500 animate-spin" />
                  </div>
              ) : files.length === 0 ? (
-                 <div className="flex-1 flex flex-col items-center justify-center text-white/30 space-y-4 min-h-[50vh]">
+                 <div className="flex-1 flex flex-col items-center justify-center text-white/30 space-y-4 min-h-[50vh] animate-in slide-in-from-bottom-4 duration-500">
                      <ImageIcon className="w-16 h-16 opacity-30" />
                      <h3 className="text-xl font-medium text-white/50">{t.cloud_gallery_empty}</h3>
                      <p className="text-sm">{t.cloud_gallery_desc}</p>
                  </div>
              ) : (
                  <div className="w-full">
-                     {/* Masonry Layout using CSS columns */}
                      <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2">
                          {visibleFiles.map((file) => {
                              const displayUrl = (useProxyLoading && localUrls[file.key]) ? localUrls[file.key] : (!useProxyLoading ? file.url : '');
@@ -433,7 +375,7 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                              return (
                                  <div 
                                      key={file.key} 
-                                     className="break-inside-avoid mb-4 group relative overflow-hidden bg-white/[0.02] hover:shadow-purple-500/10 transition-all duration-300"
+                                     className="break-inside-avoid mb-4 group relative overflow-hidden bg-white/[0.02] transition-all duration-500 rounded-xl border border-white/5 hover:border-white/20 animate-in fade-in zoom-in-95 hover:shadow-2xl hover:shadow-purple-500/10"
                                  >
                                      <div 
                                         className="relative min-h-[150px] bg-white/5 flex items-center justify-center cursor-zoom-in"
@@ -456,7 +398,7 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                                                  <img 
                                                      src={displayUrl} 
                                                      alt={file.key} 
-                                                     className={`w-full h-auto object-cover block transition-all duration-500 ${isNSFW ? 'blur-xl scale-110' : ''}`}
+                                                     className={`w-full h-auto object-cover block transition-all duration-700 group-hover:scale-105 ${isNSFW ? 'blur-xl' : ''}`}
                                                      loading="lazy"
                                                  />
                                              )
@@ -466,36 +408,29 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                                              </div>
                                          )}
                                          
-                                         {/* Dark overlay on hover */}
-                                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300 pointer-events-none" />
+                                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 pointer-events-none" />
 
-                                         {/* Bottom Toolbar Overlay */}
                                          <div className="absolute bottom-0 left-0 right-0 p-1.5 flex items-end justify-between opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none">
                                              
-                                             {/* Left: Time & Size - HIDDEN on mobile */}
                                              <div className="hidden md:flex flex-col gap-0.5 text-white/90 drop-shadow-md">
-                                                 <span className="text-xs font-medium">{file.lastModified.toLocaleDateString()}</span>
-                                                 <span className="text-[10px] text-white/70">{(file.size / 1024 / 1024).toFixed(1)} MB</span>
+                                                 <span className="text-[10px] font-medium opacity-80">{file.lastModified.toLocaleDateString()}</span>
                                              </div>
 
-                                             {/* Right: Actions - Pointer events enabled */}
-                                             <div className="flex items-center ml-auto pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+                                             <div className="flex items-center ml-auto pointer-events-auto gap-0.5" onClick={(e) => e.stopPropagation()}>
                                                  
-                                                 {/* NSFW Toggle */}
                                                  <Tooltip content={isNSFW ? t.unmark_nsfw : t.mark_nsfw} position="top">
                                                      <button 
                                                          onClick={(e) => { e.stopPropagation(); handleToggleNSFW(file); }}
-                                                         className={`p-2 hover:text-white hover:bg-white/10 rounded-full transition-all ${isNSFW ? 'text-purple-400' : 'text-white/80'}`}
+                                                         className={`p-2 hover:bg-white/10 active:scale-90 rounded-full transition-all ${isNSFW ? 'text-purple-400' : 'text-white/80'}`}
                                                      >
                                                          {togglingNsfwId === file.key ? <Loader2 className="w-4 h-4 animate-spin" /> : (isNSFW ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />)}
                                                      </button>
                                                  </Tooltip>
 
-                                                 {/* Copy Prompt */}
                                                  <Tooltip content={copiedPromptId === file.key ? t.copied : t.copy_prompt} position="top">
                                                      <button 
                                                          onClick={(e) => { e.stopPropagation(); handleCopyPrompt(file); }}
-                                                         className={`p-2 hover:text-white hover:bg-white/10 rounded-full transition-all ${copyPromptErrorId === file.key ? 'text-white/30 cursor-not-allowed' : 'text-white/80'}`}
+                                                         className={`p-2 hover:bg-white/10 active:scale-90 rounded-full transition-all ${copyPromptErrorId === file.key ? 'text-white/30 cursor-not-allowed' : 'text-white/80'}`}
                                                          disabled={copyingPromptId === file.key || copyPromptErrorId === file.key}
                                                      >
                                                          {copyingPromptId === file.key ? (
@@ -508,33 +443,30 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                                                      </button>
                                                  </Tooltip>
 
-                                                 {/* Download */}
                                                  <Tooltip content={t.download} position="top">
                                                      <button 
                                                          onClick={(e) => { e.stopPropagation(); handleDownload(file); }}
-                                                         className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-all"
+                                                         className="p-2 text-white/80 hover:bg-white/10 active:scale-90 rounded-full transition-all"
                                                      >
                                                          <Download className="w-4 h-4" />
-                                                 </button>
-                                             </Tooltip>
+                                                     </button>
+                                                 </Tooltip>
 
-                                             {/* Delete */}
-                                             <Tooltip content={t.delete} position="top">
-                                                 <button 
-                                                     onClick={(e) => { e.stopPropagation(); handleDeleteClick(file); }}
-                                                     className="p-2 text-white/80 hover:text-red-400 hover:bg-white/10 rounded-full transition-all"
-                                                 >
-                                                     {deletingId === file.key ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                                                 </button>
-                                             </Tooltip>
+                                                 <Tooltip content={t.delete} position="top">
+                                                     <button 
+                                                         onClick={(e) => { e.stopPropagation(); handleDelete(file); }}
+                                                         className="p-2 text-white/80 hover:text-red-400 hover:bg-red-500/10 active:scale-90 rounded-full transition-all"
+                                                     >
+                                                         {deletingId === file.key ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                                     </button>
+                                                 </Tooltip>
+                                             </div>
                                          </div>
                                      </div>
                                  </div>
-                             </div>
-                         )})}
+                             )})}
                      </div>
                      
-                     {/* Infinite Scroll Trigger */}
                      <div ref={observerTarget} className="h-20 w-full flex items-center justify-center mt-4">
                          {visibleFiles.length < files.length && (
                              <div className="flex flex-col items-center gap-2 text-white/30">
@@ -547,10 +479,10 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
 
             {/* Fullscreen Viewer Modal */}
             {fullscreenImage && (
-                <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center animate-in fade-in duration-300 backdrop-blur-xl">
                     <button 
                         onClick={() => setFullscreenImage(null)}
-                        className="absolute top-4 right-4 z-[110] p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
+                        className="absolute top-6 right-6 z-[110] p-3 bg-white/5 hover:bg-white/10 active:scale-90 rounded-full text-white transition-all border border-white/10"
                     >
                         <X className="w-6 h-6" />
                     </button>
@@ -569,7 +501,7 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                                 {fullscreenImage.type === 'video' ? (
                                     <video 
                                         src={(useProxyLoading && localUrls[fullscreenImage.key]) ? localUrls[fullscreenImage.key] : (!useProxyLoading ? fullscreenImage.url : '')} 
-                                        className="max-w-full max-h-full object-contain"
+                                        className="max-w-full max-h-full object-contain shadow-2xl"
                                         controls
                                         autoPlay
                                     />
@@ -577,35 +509,11 @@ export const CloudGalleryView: React.FC<CloudGalleryViewProps> = ({ handleUpload
                                     <img
                                         src={(useProxyLoading && localUrls[fullscreenImage.key]) ? localUrls[fullscreenImage.key] : (!useProxyLoading ? fullscreenImage.url : '')} 
                                         alt={fullscreenImage.key}
-                                        className="max-w-full max-h-full object-contain"
+                                        className="max-w-full max-h-full object-contain shadow-2xl"
                                     />
                                 )}
                             </TransformComponent>
                         </TransformWrapper>
-                    </div>
-                </div>
-            )}
-
-            {/* Delete Confirmation Modal */}
-            {fileToDelete && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-[#1A1625] border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
-                        <h3 className="text-lg font-bold text-white mb-2">{t.delete}</h3>
-                        <p className="text-white/60 text-sm mb-6">{t.delete_confirm}</p>
-                        <div className="flex justify-end gap-3">
-                            <button 
-                                onClick={() => setFileToDelete(null)}
-                                className="px-4 py-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium"
-                            >
-                                {t.cancel}
-                            </button>
-                            <button 
-                                onClick={confirmDelete}
-                                className="px-4 py-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors text-sm font-medium"
-                            >
-                                {t.confirm}
-                            </button>
-                        </div>
                     </div>
                 </div>
             )}

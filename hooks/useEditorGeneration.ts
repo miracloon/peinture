@@ -1,5 +1,6 @@
 
-import { useState, useRef, useEffect } from 'react';
+// Import React to resolve namespace errors
+import React, { useState, useRef, useEffect } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAppStore } from '../store/appStore';
 import { fetchBlob, downloadImage, getTextModelConfig, getEditModelConfig, getCustomProviders } from '../services/utils';

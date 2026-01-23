@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { 
     Upload,
@@ -266,7 +265,8 @@ export const ImageEditorView: React.FC<ImageEditorViewProps> = ({ onOpenSettings
         const visibleFiles = galleryFiles.slice(0, galleryLimit);
 
         const loadImagesSequentially = async () => {
-            for (const file of visibleFiles) {
+            // Fix line 102: Explicitly type the visibleFiles array as CloudFile[] to ensure iterator is correctly inferred.
+            for (const file of visibleFiles as CloudFile[]) {
                 if (isCancelled) break;
                 // Skip if already loaded
                 if (galleryLocalUrls[file.key]) continue;
