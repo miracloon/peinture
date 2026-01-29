@@ -53,6 +53,7 @@ export const useSettingsForm = (isOpen: boolean, onClose: () => void) => {
     const [fetchedModels, setFetchedModels] = useState<RemoteModelList | null>(null);
     const [refreshingProviders, setRefreshingProviders] = useState<Record<string, boolean>>({});
     const [refreshSuccessProviders, setRefreshSuccessProviders] = useState<Record<string, boolean>>({});
+    const [refreshErrorProviders, setRefreshErrorProviders] = useState<Record<string, boolean>>({});
 
     // Prompts
     const [systemPrompt, setSystemPrompt] = useState('');
@@ -90,6 +91,32 @@ export const useSettingsForm = (isOpen: boolean, onClose: () => void) => {
         };
     };
 
+    // Helper to refresh a single provider's models
+    const performModelRefresh = async (p: CustomProvider) => {
+        setRefreshingProviders(prev => ({ ...prev, [p.id]: true }));
+        setRefreshSuccessProviders(prev => ({ ...prev, [p.id]: false }));
+        setRefreshErrorProviders(prev => ({ ...prev, [p.id]: false }));
+        
+        try {
+            const url = p.apiUrl.replace(/\/$/, '') + '/v1/models';
+            const headers: Record<string, string> = {};
+            if (p.token) headers['Authorization'] = `Bearer ${p.token}`;
+            const response = await fetch(url, { headers });
+            if (!response.ok) throw new Error('Fetch failed');
+            const rawData = await response.json();
+            const transformedData = transformModelList(rawData);
+            
+            setCustomProviders(prev => prev.map(cp => cp.id === p.id ? { ...cp, models: transformedData } : cp));
+            setRefreshSuccessProviders(prev => ({ ...prev, [p.id]: true }));
+            setTimeout(() => setRefreshSuccessProviders(prev => ({ ...prev, [p.id]: false })), 2500);
+        } catch (e) {
+            console.error(`Failed to refresh models for ${p.name}`, e);
+            setRefreshErrorProviders(prev => ({ ...prev, [p.id]: true }));
+        } finally {
+            setRefreshingProviders(prev => ({ ...prev, [p.id]: false }));
+        }
+    };
+
     // -- Initialization --
     useEffect(() => {
         if (isOpen) {
@@ -112,7 +139,15 @@ export const useSettingsForm = (isOpen: boolean, onClose: () => void) => {
             setA4FToken(aTokens.join(','));
             setA4FStats(calculateStats(aTokens, 'a4f'));
 
-            setCustomProviders(getCustomProviders());
+            const initProviders = getCustomProviders();
+            setCustomProviders(initProviders);
+
+            // Auto-refresh custom providers
+            initProviders.forEach(p => {
+                if (p.enabled) {
+                    performModelRefresh(p);
+                }
+            });
 
             setSystemPrompt(getSystemPromptContent());
             setTranslationPrompt(getTranslationPromptContent());
@@ -148,8 +183,11 @@ export const useSettingsForm = (isOpen: boolean, onClose: () => void) => {
             setNewProviderToken('');
             setFetchedModels(null);
             setFetchStatus('idle');
+            setRefreshErrorProviders({});
+            setRefreshSuccessProviders({});
+            setRefreshingProviders({});
         }
-    }, [isOpen, provider, model, tokens, tokenStatus]);
+    }, [isOpen]);
 
     // -- Validation Effect --
     useEffect(() => {
@@ -289,24 +327,7 @@ export const useSettingsForm = (isOpen: boolean, onClose: () => void) => {
     const handleRefreshCustomModels = async (id: string) => {
         const p = customProviders.find(cp => cp.id === id);
         if (!p) return;
-        setRefreshingProviders(prev => ({ ...prev, [id]: true }));
-        setRefreshSuccessProviders(prev => ({ ...prev, [id]: false }));
-        try {
-            const url = p.apiUrl.replace(/\/$/, '') + '/v1/models';
-            const headers: Record<string, string> = {};
-            if (p.token) headers['Authorization'] = `Bearer ${p.token}`;
-            const response = await fetch(url, { headers });
-            if (!response.ok) throw new Error('Fetch failed');
-            const rawData = await response.json();
-            const transformedData = transformModelList(rawData);
-            handleUpdateCustomProvider(id, { models: transformedData });
-            setRefreshSuccessProviders(prev => ({ ...prev, [id]: true }));
-            setTimeout(() => setRefreshSuccessProviders(prev => ({ ...prev, [id]: false })), 2500);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setRefreshingProviders(prev => ({ ...prev, [id]: false }));
-        }
+        performModelRefresh(p);
     };
 
     const handleTestS3 = async () => {
@@ -415,8 +436,15 @@ export const useSettingsForm = (isOpen: boolean, onClose: () => void) => {
         a4fToken, a4fStats, 
         updateToken,
 
-        customProviders, handleUpdateCustomProvider, handleDeleteCustomProvider, handleRefreshCustomModels, refreshingProviders, refreshSuccessProviders,
+        customProviders, handleUpdateCustomProvider, handleDeleteCustomProvider, handleRefreshCustomModels, refreshingProviders, refreshSuccessProviders, refreshErrorProviders,
         newProviderName, setNewProviderName, newProviderUrl, setNewProviderUrl, newProviderToken, setNewProviderToken, fetchStatus, fetchedModels, handleFetchCustomModels, handleAddCustomProvider,
+        handleClearAddForm: () => {
+            setNewProviderName('');
+            setNewProviderUrl('');
+            setNewProviderToken('');
+            setFetchedModels(null);
+            setFetchStatus('idle');
+        },
         systemPrompt, setSystemPrompt, translationPrompt, setTranslationPrompt,
         creationModelValue, setCreationModelValue,
         editModelValue, setEditModelValue,

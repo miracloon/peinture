@@ -82,7 +82,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     setActiveTab={form.setActiveTab as any} 
                 />
                 
-                <div className="flex-1 overflow-hidden relative">
+                {/* Added min-h-0 to allow proper scrolling in flex child */}
+                <div className="flex-1 overflow-y-auto overflow-x-hidden relative min-h-0">
                     <div 
                         className="flex h-full transition-transform duration-500 cubic-bezier(0.34, 1.56, 0.64, 1)"
                         style={{ transform: `translateX(-${activeIndex * 100}%)` }}
@@ -115,6 +116,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                             handleRefreshCustomModels={form.handleRefreshCustomModels}
                                             refreshingProviders={form.refreshingProviders}
                                             refreshSuccessProviders={form.refreshSuccessProviders}
+                                            refreshErrorProviders={form.refreshErrorProviders}
                                             newProviderName={form.newProviderName} setNewProviderName={form.setNewProviderName}
                                             newProviderUrl={form.newProviderUrl} setNewProviderUrl={form.setNewProviderUrl}
                                             newProviderToken={form.newProviderToken} setNewProviderToken={form.setNewProviderToken}
@@ -122,11 +124,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                             fetchedModels={form.fetchedModels}
                                             handleFetchCustomModels={form.handleFetchCustomModels}
                                             handleAddCustomProvider={form.handleAddCustomProvider}
-                                            handleClearAddForm={() => {
-                                                form.setNewProviderName('');
-                                                form.setNewProviderUrl('');
-                                                form.setNewProviderToken('');
-                                            }}
+                                            handleClearAddForm={form.handleClearAddForm}
                                         />
                                     )}
 

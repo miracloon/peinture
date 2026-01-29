@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Eye, EyeOff, ShieldCheck, ShieldAlert, ChevronDown, Loader2, RotateCcw, Check, Trash2, Globe } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, ShieldAlert, ChevronDown, Loader2, RotateCcw, Check, Trash2, Globe, AlertTriangle } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
 import { translations } from '../../translations';
 import { ServiceMode, CustomProvider, RemoteModelList, ProviderId } from '../../types';
@@ -21,6 +21,7 @@ interface ProviderTabProps {
     handleRefreshCustomModels: (id: string) => void;
     refreshingProviders: Record<string, boolean>;
     refreshSuccessProviders: Record<string, boolean>;
+    refreshErrorProviders: Record<string, boolean>;
     // Add New Custom Provider Props
     newProviderName: string; setNewProviderName: (v: string) => void;
     newProviderUrl: string; setNewProviderUrl: (v: string) => void;
@@ -102,7 +103,7 @@ export const ProviderTab: React.FC<ProviderTabProps> = (props) => {
                         onChange(newValue);
                     }}
                     placeholder={placeholder}
-                    className="w-full pl-4 pr-10 py-2.5 bg-[#1A1625] border border-white/10 rounded-xl text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/50 transition-all font-mono text-sm"
+                    className="w-full pl-4 pr-10 py-2.5 bg-[#1A1625] border border-white/10 rounded-xl text-white placeholder:text-white/20 focus:outline-0 focus:border-purple-500/50 transition-all font-mono text-sm"
                 />
                 <button
                     type="button"
@@ -145,7 +146,7 @@ export const ProviderTab: React.FC<ProviderTabProps> = (props) => {
     const showAddCustomProvider = props.serviceMode !== 'local';
 
     return (
-        <div>
+        <>
             {showBaseProviders && (
                 <>
                     {renderProviderPanel('huggingface', t.provider_huggingface, 'bg-yellow-500', 
@@ -164,27 +165,34 @@ export const ProviderTab: React.FC<ProviderTabProps> = (props) => {
                         <div className="space-y-4">
                             <div className="space-y-2">
                                 <label className="text-xs font-medium text-white/60">{t.provider_name}</label>
-                                <input type="text" value={cp.name} onChange={(e) => props.handleUpdateCustomProvider(cp.id, { name: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50" />
+                                <input type="text" value={cp.name} onChange={(e) => props.handleUpdateCustomProvider(cp.id, { name: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-0 focus:border-purple-500/50" />
                             </div>
                             <div className="space-y-2">
                                 <label className="text-xs font-medium text-white/60">{t.api_url}</label>
                                 <div className="flex items-center gap-2">
-                                    <input type="text" value={cp.apiUrl} onChange={(e) => props.handleUpdateCustomProvider(cp.id, { apiUrl: e.target.value })} className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono" />
+                                    <input type="text" value={cp.apiUrl} onChange={(e) => props.handleUpdateCustomProvider(cp.id, { apiUrl: e.target.value })} className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-0 focus:border-purple-500/50 font-mono" />
                                     <button onClick={() => props.handleRefreshCustomModels(cp.id)} disabled={props.refreshingProviders[cp.id]} className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${props.refreshingProviders[cp.id] ? 'bg-white/5 text-white/40 border-white/5 cursor-not-allowed' : 'bg-white/10 text-white/80 border-white/10 hover:bg-white/20'}`} title={t.get_models || "Update Models"}>{props.refreshingProviders[cp.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}</button>
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <label className="text-xs font-medium text-white/60">{t.api_token}</label>
                                 <div className="relative w-full">
-                                    <input type={showTokens[cp.id] ? "text" : "password"} value={cp.token || ''} onChange={(e) => props.handleUpdateCustomProvider(cp.id, { token: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono pr-8" />
+                                    <input type={showTokens[cp.id] ? "text" : "password"} value={cp.token || ''} onChange={(e) => props.handleUpdateCustomProvider(cp.id, { token: e.target.value })} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-0 focus:border-purple-500/50 font-mono pr-8" />
                                     <button type="button" onClick={() => toggleTokenShow(cp.id)} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white p-1">{showTokens[cp.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}</button>
                                 </div>
                             </div>
                             <div className="flex items-center justify-between">
-                                    <div className={`text-xs transition-colors duration-300 flex items-center gap-1.5 ${props.refreshSuccessProviders[cp.id] ? 'text-green-400 font-medium' : 'text-white/40'}`}>
-                                    {props.refreshSuccessProviders[cp.id] && <Check className="w-3 h-3" />}
-                                    {t.models_count.replace('{count}', ((cp.models.generate?.length || 0) + (cp.models.edit?.length || 0) + (cp.models.video?.length || 0) + (cp.models.text?.length || 0) + (cp.models.upscaler?.length || 0)).toString())}
-                                    </div>
+                                    {props.refreshErrorProviders[cp.id] ? (
+                                        <div className="text-xs text-red-400 font-medium flex items-center gap-1.5">
+                                            <AlertTriangle className="w-3 h-3" />
+                                            Model list failed to load
+                                        </div>
+                                    ) : (
+                                        <div className={`text-xs transition-colors duration-300 flex items-center gap-1.5 ${props.refreshSuccessProviders[cp.id] ? 'text-green-400 font-medium' : 'text-white/40'}`}>
+                                            {props.refreshSuccessProviders[cp.id] && <Check className="w-3 h-3" />}
+                                            {t.models_count.replace('{count}', ((cp.models.generate?.length || 0) + (cp.models.edit?.length || 0) + (cp.models.video?.length || 0) + (cp.models.text?.length || 0) + (cp.models.upscaler?.length || 0)).toString())}
+                                        </div>
+                                    )}
                                     <button onClick={() => props.handleDeleteCustomProvider(cp.id)} className="p-2 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title={t.delete || "Delete"}><Trash2 className="w-4 h-4" /></button>
                             </div>
                         </div>
@@ -193,19 +201,19 @@ export const ProviderTab: React.FC<ProviderTabProps> = (props) => {
                         <div className="space-y-4">
                             <div className="space-y-2">
                                 <label className="text-xs font-medium text-white/60">{t.provider_name} <span className="text-white/30">({t.seedOptional})</span></label>
-                                <input type="text" value={props.newProviderName} onChange={e => props.setNewProviderName(e.target.value)} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50" />
+                                <input type="text" value={props.newProviderName} onChange={e => props.setNewProviderName(e.target.value)} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-0 focus:border-purple-500/50" />
                             </div>
                             <div className="space-y-2">
                                 <label className="text-xs font-medium text-white/60">{t.api_url}</label>
                                 <div className="flex items-center gap-2">
-                                    <input type="text" value={props.newProviderUrl} onChange={e => props.setNewProviderUrl(e.target.value)} className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono" placeholder="https://example.com/api" />
+                                    <input type="text" value={props.newProviderUrl} onChange={e => props.setNewProviderUrl(e.target.value)} className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-0 focus:border-purple-500/50 font-mono" placeholder="https://example.com/api" />
                                     <button onClick={props.handleFetchCustomModels} disabled={!props.newProviderUrl || props.fetchStatus === 'loading'} className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${props.fetchStatus === 'success' ? 'bg-green-500/20 text-green-400 border-green-500/30' : props.fetchStatus === 'failed' ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-white/10 text-white/80 border-white/10 hover:bg-white/20'}`}>{props.fetchStatus === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}{props.fetchStatus === 'loading' ? t.fetch_status_loading : (props.fetchStatus === 'success' ? t.fetch_status_success : (props.fetchStatus === 'failed' ? t.fetch_status_failed : t.get_models))}</button>
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <label className="text-xs font-medium text-white/60">{t.api_token}</label>
                                 <div className="relative w-full">
-                                    <input type={showTokens['new'] ? "text" : "password"} value={props.newProviderToken} onChange={e => props.setNewProviderToken(e.target.value)} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-purple-500/50 font-mono pr-8" />
+                                    <input type={showTokens['new'] ? "text" : "password"} value={props.newProviderToken} onChange={e => props.setNewProviderToken(e.target.value)} className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-0 focus:border-purple-500/50 font-mono pr-8" />
                                     <button type="button" onClick={() => toggleTokenShow('new')} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white p-1">{showTokens['new'] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}</button>
                                 </div>
                             </div>
@@ -218,6 +226,6 @@ export const ProviderTab: React.FC<ProviderTabProps> = (props) => {
                     ))}
                 </div>
             )}
-        </div>
+        </>
     );
 };
